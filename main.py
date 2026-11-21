@@ -5,11 +5,16 @@ from discord.ui import View, Select, Button
 import asyncio
 import aiohttp
 import re
+import os
 from datetime import datetime, timedelta
 
-# ========== SETTING UTAMA - GANTI DISINI ==========
-BANNER_MIPI = "https://i.imgur.com/BANNER-MIPI-KAMU.png"
-TOKEN = "TOKEN_BOT_KAMU"
+# ========== SETTING UTAMA - PAKE RAILWAY VARIABLES ==========
+BANNER_MIPI = os.getenv("BANNER_MIPI", "https://raw.githubusercontent.com/1world97/MIPI-WORLD/main/56a25f63-21b9-56b4-851c-d5d1c6b25943.jpeg")
+TOKEN = os.getenv("TOKEN")
+
+# QRIS & BANNER BUAT DI TICKET (OTOMATIS KIRIM)
+QRIS_URL = "https://raw.githubusercontent.com/1world97/MIPI-WORLD/main/IMG_6533.jpeg"
+BANNER_TICKET_URL = "https://raw.githubusercontent.com/1world97/MIPI-WORLD/main/56a25f63-21b9-56b4-851c-d5d1c6b25943.jpeg"
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -63,7 +68,7 @@ async def verif_slash(interaction: discord.Interaction):
     embed.set_image(url=BANNER_MIPI)
     await interaction.response.send_message(embed=embed, view=VerifyView())
 
-# ========== 3. TICKET SYSTEM ==========
+# ========== 3. TICKET SYSTEM - AUTO KIRIM QRIS & BANNER ==========
 class TicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -77,9 +82,23 @@ class TicketView(View):
             guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
         }
         ch = await guild.create_text_channel(f"🎫┃{interaction.user.name}", category=cat, overwrites=overwrites)
-        embed = discord.Embed(title="🎫  TICKET ORDER - MIPI WORLD", description=f"Halo {interaction.user.mention}!\n\nSilakan isi format order:\n**• Nama Roblox:**\n**• Produk:** (Send / Vilog / Pluss)\n**• Nominal:**\n**• Bukti TF:**\n\nAdmin akan segera merespon!", color=discord.Color.from_rgb(88,101,242))
-        await ch.send(embed=embed, view=CloseTicketView())
-        await interaction.response.send_message(f"✅ Ticket kamu udah dibuat: {ch.mention}", ephemeral=True)
+
+        # 1. WELCOME + BANNER
+        embed1 = discord.Embed(title="🎫  TICKET ORDER - MIPI WORLD", description=f"Halo {interaction.user.mention}!\n\nSelamat datang di ticket order MIPI WORLD!\nSilakan isi format order di bawah & langsung scan QRIS untuk pembayaran!", color=discord.Color.from_rgb(88,101,242))
+        embed1.set_image(url=BANNER_TICKET_URL)
+        await ch.send(embed=embed1)
+
+        # 2. FORMAT ORDER
+        embed2 = discord.Embed(title="📝  FORMAT ORDER", description="**• Nama Roblox:**\n**• Produk:** (Send / Vilog / Pluss)\n**• Nominal:**\n**• Bukti TF:** (Kirim foto bukti transfer di sini)\n\nAdmin akan segera merespon!", color=discord.Color.green())
+        await ch.send(embed=embed2)
+
+        # 3. QRIS OTOMATIS
+        embed3 = discord.Embed(title="💰  PEMBAYARAN - QRIS MIPI WORLD", description="Silakan scan QR di bawah untuk bayar!\n\n**Nama:** Rafi Store\n**NMID:** ID1026603621750\n\n⚠️ **PENTING:**\n• Bayar sesuai nominal order\n• Kirim bukti TF di ticket ini\n• Jangan kirim bukti TF palsu!", color=discord.Color.from_rgb(255, 193, 7))
+        embed3.set_image(url=QRIS_URL)
+        embed3.set_footer(text="MIPI WORLD • QRIS Otomatis | Rafi Store")
+        await ch.send(embed=embed3, view=CloseTicketView())
+
+        await interaction.response.send_message(f"✅ Ticket kamu udah dibuat: {ch.mention}\nQRIS udah dikirim otomatis di dalam ticket!", ephemeral=True)
 
 class CloseTicketView(View):
     def __init__(self):
