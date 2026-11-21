@@ -8,58 +8,123 @@ import re
 import os
 from datetime import datetime, timedelta
 
-# ========== SETTING UTAMA - PAKE RAILWAY VARIABLES ==========
+# ========== SETTING UTAMA ==========
 BANNER_MIPI = os.getenv("BANNER_MIPI", "https://raw.githubusercontent.com/1world97/MIPI-WORLD/main/56a25f63-21b9-56b4-851c-d5d1c6b25943.jpeg")
 TOKEN = os.getenv("TOKEN")
-
-# QRIS & BANNER BUAT DI TICKET (OTOMATIS KIRIM)
 QRIS_URL = "https://raw.githubusercontent.com/1world97/MIPI-WORLD/main/IMG_6533.jpeg"
 BANNER_TICKET_URL = "https://raw.githubusercontent.com/1world97/MIPI-WORLD/main/56a25f63-21b9-56b4-851c-d5d1c6b25943.jpeg"
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ========== 1. SETUP SERVER ==========
-@bot.tree.command(name="setup", description="Setup semua channel MIPI WORLD otomatis")
+# ========== 1. SETUP FINAL - ROLE + CHANNEL + KATEGORI ==========
+@bot.tree.command(name="setup", description="Setup MIPI WORLD FINAL - Role + Channel + Kategori")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_slash(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     guild = interaction.guild
     everyone = guild.default_role
-    read_only = {everyone: discord.PermissionOverwrite(send_messages=False, view_channel=True)}
-    read_write = {everyone: discord.PermissionOverwrite(send_messages=True, view_channel=True)}
 
-    cat_info = await guild.create_category("🌍┃𝖬𝗂𝗉𝗂 𝖶𝗈𝗋𝗅𝖽")
-    await guild.create_text_channel("👋┃𝖶𝖾𝗅𝖼𝗈𝗆𝖾", category=cat_info, overwrites=read_only)
-    await guild.create_text_channel("📜┃𝖱𝗎𝗅𝖾𝗌", category=cat_info, overwrites=read_only)
-    await guild.create_text_channel("📢┃𝖠𝗇𝗇𝗈𝗎𝗇𝖼𝖾𝗆𝖾𝗇𝗍", category=cat_info, overwrites=read_only)
-    await guild.create_text_channel("✅┃𝖵𝖾𝗋𝗂𝖿𝗒", category=cat_info, overwrites=read_write)
-    await guild.create_text_channel("💬┃𝖢𝗁𝖺𝗍", category=cat_info, overwrites=read_write)
+    def cari_role(nama):
+        return discord.utils.get(guild.roles, name=nama)
 
-    cat_store = await guild.create_category("🛒┃𝖬𝗂𝗉𝗂 𝖲𝗍𝗈𝗋𝖾")
-    await guild.create_text_channel("🛒┃𝖮𝗋𝖽𝖾𝗋・𝖱𝗈𝖻𝗎𝗑", category=cat_store, overwrites=read_only)
-    await guild.create_text_channel("💰┃𝖯𝗋𝗂𝖼𝖾𝗅𝗂𝗌𝗍", category=cat_store, overwrites=read_only)
-    await guild.create_text_channel("🏆┃𝖳𝗈𝗉・𝖯𝖾𝗆𝖻𝖾𝗅𝗂", category=cat_store, overwrites=read_only)
-    await guild.create_text_channel("⭐┃𝖳𝖾𝗌𝗍𝗂𝗆𝗈𝗇𝗂", category=cat_store, overwrites=read_only)
-    await guild.create_text_channel("🎁┃𝖦𝗂𝗏𝖾𝖺𝗐𝖺𝗒", category=cat_store, overwrites=read_only)
+    roles_data = [
+        ("👑┃Owner", discord.Color.red(), True),
+        ("🛡️┃Admin", discord.Color.orange(), True),
+        ("🎧┃Staff", discord.Color.gold(), True),
+        ("🛠️┃Moderator", discord.Color.blue(), True),
+        ("✅┃Member", discord.Color.green(), True),
+        ("🛒┃Buyer", discord.Color.purple(), True),
+        ("👤┃Unverified", discord.Color.dark_grey(), False),
+    ]
+    created_roles = {}
+    for nama, warna, pisah in roles_data:
+        r = cari_role(nama)
+        if not r:
+            r = await guild.create_role(name=nama, colour=warna, hoist=pisah, mentionable=True, reason="Setup MIPI WORLD")
+        created_roles[nama] = r
 
-    cat_support = await guild.create_category("🎧┃𝖬𝗂𝗉𝗂 𝖲𝗎𝗉𝗉𝗈𝗋𝗍")
-    await guild.create_text_channel("🎫┃𝖳𝗂𝖼𝗄𝖾𝗍・𝖲𝗎𝗉𝗉𝗈𝗋𝗍", category=cat_support, overwrites=read_only)
-    await guild.create_text_channel("📩┃𝖫𝖺𝗉𝗈𝗋・𝖯𝖾𝗇𝗂𝗉𝗎", category=cat_support, overwrites=read_only)
+    owner_role = created_roles["👑┃Owner"]
+    admin_role = created_roles["🛡️┃Admin"]
+    staff_role = created_roles["🎧┃Staff"]
+    mod_role = created_roles["🛠️┃Moderator"]
+    member_role = created_roles["✅┃Member"]
 
-    await interaction.followup.send("✅ Setup MIPI WORLD Berhasil! Semua channel udah kebuat!", ephemeral=True)
+    try:
+        await interaction.user.add_roles(owner_role)
+    except: pass
 
-# ========== 2. VERIFY SYSTEM ==========
+    public = {everyone: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True)}
+    public_readonly = {everyone: discord.PermissionOverwrite(view_channel=True, send_messages=False)}
+    verify_only = {everyone: discord.PermissionOverwrite(view_channel=True, send_messages=True), member_role: discord.PermissionOverwrite(view_channel=False)}
+    member_only = {everyone: discord.PermissionOverwrite(view_channel=False), member_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True), staff_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True), admin_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True), mod_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True)}
+    staff_only = {everyone: discord.PermissionOverwrite(view_channel=False), staff_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True), admin_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True), owner_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True)}
+
+    cat1 = await guild.create_category("⎯⎯⎯• Public Area")
+    await guild.create_text_channel("👋┃𝖶𝖾𝗅𝖼𝗈𝗆𝖾", category=cat1, overwrites=public_readonly)
+    await guild.create_text_channel("📜┃𝖱𝗎𝗅𝖾𝗌", category=cat1, overwrites=public_readonly)
+    await guild.create_text_channel("✅┃𝖵𝖾𝗋𝗂𝖿𝗂𝗄𝖺𝗌𝗂", category=cat1, overwrites=verify_only)
+    await guild.create_text_channel("📢┃𝖯𝖾𝗇𝗀𝗎𝗆𝗎𝗆𝖺𝗇", category=cat1, overwrites=public_readonly)
+    await guild.create_text_channel("💬┃𝖢𝗁𝖺𝗍・𝖯𝗎𝖻𝗅𝗂𝗄", category=cat1, overwrites=public)
+
+    cat2 = await guild.create_category("⎯⎯⎯• Mipi Store")
+    await guild.create_text_channel("🛒┃𝖮𝗋𝖽𝖾𝗋・𝖱𝗈𝖻𝗎𝗑", category=cat2, overwrites=public_readonly)
+    await guild.create_text_channel("🏆┃𝖳𝗈𝗉・𝖯𝖾𝗆𝖻𝖾𝗅𝗂", category=cat2, overwrites=public_readonly)
+    await guild.create_text_channel("💳┃𝖢𝖾𝗄・𝖲𝖺𝗅𝖽𝗈", category=cat2, overwrites=public)
+    await guild.create_text_channel("📦┃𝖮𝗋𝖽𝖾𝗋・𝖲𝗍𝖺𝗍𝗎𝗌", category=cat2, overwrites=public_readonly)
+    await guild.create_text_channel("💬┃𝖵𝗈𝗎𝖼𝗁", category=cat2, overwrites=public)
+    await guild.create_text_channel("⭐┃𝖳𝖾𝗌𝗍𝗂𝗆𝗈𝗇𝗂", category=cat2, overwrites=public)
+
+    cat3 = await guild.create_category("⎯⎯⎯• Member Area")
+    await guild.create_text_channel("💭┃𝖢𝗁𝖺𝗍・𝖬𝖾𝗆𝖻𝖾𝗋", category=cat3, overwrites=member_only)
+    await guild.create_text_channel("📸┃𝖦𝖺𝗅𝗅𝖾𝗋𝗒・𝖱𝗈𝖻𝗅𝗈𝗑", category=cat3, overwrites=member_only)
+    await guild.create_text_channel("🎮┃𝖬𝖺𝖻𝖺𝗋・𝖱𝗈𝖻𝗅𝗈𝗑", category=cat3, overwrites=member_only)
+    await guild.create_text_channel("🎁┃𝖦𝗂𝗏𝖾𝖺𝗐𝖺𝗒", category=cat3, overwrites=member_only)
+    await guild.create_text_channel("🔍┃𝖢𝖾𝗄・𝖠𝗏𝖺𝗍𝖺𝗋", category=cat3, overwrites=member_only)
+    await guild.create_text_channel("💰┃𝖢𝖾𝗄・𝖱𝖻𝗑", category=cat3, overwrites=member_only)
+
+    cat4 = await guild.create_category("⎯⎯⎯• Rekber Area")
+    await guild.create_text_channel("🤝┃𝖱𝖾𝗄𝖻𝖾𝗋・𝖯𝖺𝗇𝖾𝗅", category=cat4, overwrites=public_readonly)
+    await guild.create_text_channel("📜┃𝖧𝗂𝗌𝗍𝗈𝗋𝗒・𝖱𝖾𝗄𝖻𝖾𝗋", category=cat4, overwrites=public_readonly)
+
+    cat5 = await guild.create_category("⎯⎯⎯• Voice Public")
+    await guild.create_text_channel("✨〢𝖲etting・𝖵oice", category=cat5, overwrites=public)
+    await guild.create_voice_channel("🔈〢Voice・𝖯𝗎𝖻𝗅𝗂𝗄", category=cat5, overwrites=public)
+    await guild.create_voice_channel("💤┃𝖠𝖿𝗄", category=cat5, overwrites=public)
+
+    cat6 = await guild.create_category("⎯⎯⎯• Voice Member")
+    await guild.create_voice_channel("🔈〢Voice・𝖬𝖾𝗆𝖻𝖾𝗋", category=cat6, overwrites=member_only)
+    await guild.create_voice_channel("💤┃𝖠𝖿𝗄", category=cat6, overwrites=member_only)
+
+    cat7 = await guild.create_category("⎯⎯⎯• Staff Only")
+    await guild.create_text_channel("🔕┃𝖱𝗎𝖺𝗇𝗀・𝖲𝗍𝖺𝖿", category=cat7, overwrites=staff_only)
+    await guild.create_voice_channel("☏〢Staff・Voice", category=cat7, overwrites=staff_only)
+
+    await interaction.followup.send("✅ Setup MIPI WORLD FINAL Berhasil!\n\n**Role:** 👑 Owner | 🛡️ Admin | 🎧 Staff | 🛠️ Moderator | ✅ Member | 🛒 Buyer\n**Channel:** Public Area • Mipi Store • Member Area • Rekber Area • Voice Public • Voice Member • Staff Only\n\nKamu otomatis jadi 👑 Owner!", ephemeral=True)
+
+# ========== 2. GIVERROLE ==========
+@bot.tree.command(name="giverole", description="Kasih role ke seseorang")
+@app_commands.describe(user="Tag orangnya", role="Pilih role nya")
+@app_commands.checks.has_permissions(administrator=True)
+async def giverole_slash(interaction: discord.Interaction, user: discord.Member, role: discord.Role):
+    await user.add_roles(role)
+    await interaction.response.send_message(f"✅ {user.mention} udah dikasih role {role.mention}!")
+
+# ========== 3. VERIFY ==========
 class VerifyView(View):
     def __init__(self):
         super().__init__(timeout=None)
     @discord.ui.button(label="✅ Verifikasi", style=discord.ButtonStyle.green, custom_id="verify_btn")
     async def verify(self, interaction: discord.Interaction, button: Button):
-        role = discord.utils.get(interaction.guild.roles, name="Member")
-        if not role:
-            role = await interaction.guild.create_role(name="Member", colour=discord.Color.green())
-        await interaction.user.add_roles(role)
-        await interaction.response.send_message("✅ Kamu berhasil terverifikasi! Selamat datang di MIPI WORLD!", ephemeral=True)
+        member_role = discord.utils.get(interaction.guild.roles, name="✅┃Member")
+        unverif_role = discord.utils.get(interaction.guild.roles, name="👤┃Unverified")
+        if not member_role:
+            member_role = await interaction.guild.create_role(name="✅┃Member", colour=discord.Color.green())
+        await interaction.user.add_roles(member_role)
+        if unverif_role:
+            try: await interaction.user.remove_roles(unverif_role)
+            except: pass
+        await interaction.response.send_message("✅ Kamu berhasil terverifikasi! Selamat datang di MIPI WORLD!\nKamu sekarang bisa akses Member Area!", ephemeral=True)
 
 @bot.tree.command(name="verif", description="Kirim panel verifikasi")
 @app_commands.checks.has_permissions(administrator=True)
@@ -68,36 +133,31 @@ async def verif_slash(interaction: discord.Interaction):
     embed.set_image(url=BANNER_MIPI)
     await interaction.response.send_message(embed=embed, view=VerifyView())
 
-# ========== 3. TICKET SYSTEM - AUTO KIRIM QRIS & BANNER ==========
+# ========== 4. TICKET - AUTO QRIS ==========
 class TicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
     @discord.ui.button(label="🎫 Buka Ticket Order", style=discord.ButtonStyle.blurple, custom_id="ticket_btn")
     async def open_ticket(self, interaction: discord.Interaction, button: Button):
         guild = interaction.guild
-        cat = discord.utils.get(guild.categories, name="🛒┃𝖬𝗂𝗉𝗂 𝖲𝗍𝗈𝗋𝖾")
+        cat = discord.utils.get(guild.categories, name="⎯⎯⎯• Mipi Store")
+        if not cat:
+            cat = discord.utils.get(guild.categories, name="🛒┃𝖬𝗂𝗉𝗂 𝖲𝗍𝗈𝗋𝖾")
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
             guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
         }
         ch = await guild.create_text_channel(f"🎫┃{interaction.user.name}", category=cat, overwrites=overwrites)
-
-        # 1. WELCOME + BANNER
         embed1 = discord.Embed(title="🎫  TICKET ORDER - MIPI WORLD", description=f"Halo {interaction.user.mention}!\n\nSelamat datang di ticket order MIPI WORLD!\nSilakan isi format order di bawah & langsung scan QRIS untuk pembayaran!", color=discord.Color.from_rgb(88,101,242))
         embed1.set_image(url=BANNER_TICKET_URL)
         await ch.send(embed=embed1)
-
-        # 2. FORMAT ORDER
         embed2 = discord.Embed(title="📝  FORMAT ORDER", description="**• Nama Roblox:**\n**• Produk:** (Send / Vilog / Pluss)\n**• Nominal:**\n**• Bukti TF:** (Kirim foto bukti transfer di sini)\n\nAdmin akan segera merespon!", color=discord.Color.green())
         await ch.send(embed=embed2)
-
-        # 3. QRIS OTOMATIS
         embed3 = discord.Embed(title="💰  PEMBAYARAN - QRIS MIPI WORLD", description="Silakan scan QR di bawah untuk bayar!\n\n**Nama:** Rafi Store\n**NMID:** ID1026603621750\n\n⚠️ **PENTING:**\n• Bayar sesuai nominal order\n• Kirim bukti TF di ticket ini\n• Jangan kirim bukti TF palsu!", color=discord.Color.from_rgb(255, 193, 7))
         embed3.set_image(url=QRIS_URL)
         embed3.set_footer(text="MIPI WORLD • QRIS Otomatis | Rafi Store")
         await ch.send(embed=embed3, view=CloseTicketView())
-
         await interaction.response.send_message(f"✅ Ticket kamu udah dibuat: {ch.mention}\nQRIS udah dikirim otomatis di dalam ticket!", ephemeral=True)
 
 class CloseTicketView(View):
@@ -116,7 +176,7 @@ async def ticket_slash(interaction: discord.Interaction):
     embed.set_image(url=BANNER_MIPI)
     await interaction.response.send_message(embed=embed, view=TicketView())
 
-# ========== 4. PRICELIST SYSTEM ==========
+# ========== 5. PRICELIST ==========
 class PricelistSelect(Select):
     def __init__(self):
         options = [
@@ -152,7 +212,7 @@ async def pricelist_slash(interaction: discord.Interaction):
     e.set_footer(text="MIPI WORLD • Aman • Cepat • Terpercaya")
     await interaction.response.send_message(embed=e, view=PricelistView())
 
-# ========== 5. WELCOME ==========
+# ========== 6. WELCOME ==========
 @bot.event
 async def on_member_join(member):
     ch = discord.utils.get(member.guild.text_channels, name="👋┃𝖶𝖾𝗅𝖼𝗈𝗆𝖾")
@@ -161,7 +221,7 @@ async def on_member_join(member):
     e.set_image(url=BANNER_MIPI)
     await ch.send(embed=e)
 
-# ========== 6. CEK AVATAR LENGKAP ==========
+# ========== 7. CEK AVATAR LENGKAP ==========
 async def get_roblox_id(username: str):
     async with aiohttp.ClientSession() as session:
         async with session.post("https://users.roblox.com/v1/usernames/users", json={"usernames": [username]}) as r:
@@ -253,7 +313,7 @@ async def cekavatar_lengkap(interaction: discord.Interaction, username: str):
     embed.set_footer(text="MIPI WORLD • Cek Avatar Lengkap | Klik nama item buat liat di Catalog")
     await interaction.followup.send(embed=embed)
 
-# ========== 7. CEK GAMEPASS & CEK PENDING ==========
+# ========== 8. CEK GAMEPASS & CEK PENDING ==========
 def ambil_id_gamepass(input_teks: str):
     angka = re.findall(r"\d+", input_teks)
     return angka[0] if angka else None
@@ -330,7 +390,7 @@ async def cekpending_slash(interaction: discord.Interaction, gamepass: str, tang
     embed.set_footer(text="MIPI WORLD • Cek Pending | Robux Pending biasanya cair 3-7 hari")
     await interaction.followup.send(embed=embed)
 
-# ========== 8. ON READY ==========
+# ========== 9. ON READY ==========
 @bot.event
 async def on_ready():
     print(f"{bot.user} Online!")
