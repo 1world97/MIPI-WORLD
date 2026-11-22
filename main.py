@@ -15,14 +15,11 @@ DANA_NOMOR = "0895-2642-4213"
 DANA_NAMA = "Rafi Store"
 
 # --- EMOJI GERAK / NITRO ---
-# Cara pake: setelah kamu /addemoji nama:fire link:gif, Discord kasih ID nya.
-# Ganti ID di bawah pake ID emoji kamu biar embed nya ikut gerak!
-# Contoh asli: "<a:fire:123456789012345678>" - yang <a: = ANIMATED, yang <: = DIAM
-EMOJI_FIRE = "<a:fire:123456789012345678>"  # <-- Ganti pake ID emoji gif kamu!
-EMOJI_CROWN = "👑" # Kalo belum ada emoji gerak, pake unicode dulu, tetep jalan!
+# Emoji gerak formatnya <a:nama:id>. Upload dulu pake /addemoji, terus ganti ID di bawah!
+EMOJI_FIRE = "<a:fire:123456789012345678>"
+EMOJI_CROWN = "👑"
 EMOJI_ROBUX = "💰"
 EMOJI_CHECK = "✅"
-# Tips: Kalo mau cepet, pake emoji bawaan Discord yang gerak di HP: 🔥 ✨ 🎉 💎 ⚡ itu di HP keliatan gerak kalo pake Nitro!
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -45,7 +42,6 @@ REKBER_HISTORY = load_json("rekber_history.json", [])
 VOUCH_DATA = load_json("vouch.json", [])
 CONFIG = load_json("config_mipi.json", {"toko_buka": True, "jam_buka": "08:00", "jam_tutup": "23:00", "antispam": True, "antispam_timeout": 60, "leaderboard_msg_id": None, "leaderboard_channel_id": None, "status_msg_id": None, "emoji_session": None, "afk_channel_id": None})
 GIVEAWAYS = {}
-# Antispam
 SPAM_TRACK = defaultdict(lambda: deque(maxlen=10))
 AFK_VC = None
 
@@ -265,7 +261,7 @@ class TicketView(View):
 async def ticket_slash(interaction):
     e=discord.Embed(title="🎀 WELCOME TO MIPI STORE 🎀", description="Mau order apa? Klik tombol!\n\n🎫 Vilog | 🌟 8 Bit | ✨ Plus | 🛒 Beli Akun | ⚡ Visend\n\nPembayaran: QRIS / DANA", color=discord.Color.from_rgb(255,158,187)); e.set_image(url=BANNER_MIPI)
     await interaction.response.send_message(embed=e, view=TicketView())
-@bot.tree.command(name="ticketpanel", description="Kirim panel ticket ke channel (Admin only) - kaya 1ST MARKET")
+@bot.tree.command(name="ticketpanel", description="Kirim panel ticket ke channel (Admin only)")
 @app_commands.checks.has_permissions(administrator=True)
 async def ticketpanel_cmd(interaction):
     e=discord.Embed(title="🎀 WELCOME TO MIPI STORE 🎀", description="HALLO KAKK! Selamat datang di Mipi Store!\n\nMau order apa? Klik tombol di bawah!\n\n🎫 **Robux Vilog** - Via Login\n🌟 **Acc 8 Bit** - Cuma Username + Paket!\n✨ **Roblox Plus**\n🛒 **Beli Akun**\n⚡ **Visend / Fast Send** - Cuma Username + Nickname!\n\nPembayaran: QRIS / DANA **0895-2642-4213**\nAdmin fast respon!", color=discord.Color.from_rgb(255,158,187)); e.set_image(url=BANNER_MIPI)
@@ -296,7 +292,6 @@ async def pricelistnitro_cmd(interaction):
 @bot.tree.command(name="editpricelist", description="Studio ubah nominal harga produk Robux")
 @app_commands.checks.has_permissions(administrator=True)
 async def editpricelist_cmd(interaction, jumlah: str, harga_baru: int):
-    # Bisa edit Visend + Nitro sekaligus, kaya 1ST MARKET!
     if jumlah in HARGA_VISEND:
         lama=HARGA_VISEND[jumlah]; HARGA_VISEND[jumlah]=harga_baru; save_json("harga_visend.json", HARGA_VISEND)
         await interaction.response.send_message(f"✅ **Visend {jumlah} Robux:** {format_rupiah(lama)} ➜ **{format_rupiah(harga_baru)}**")
@@ -384,15 +379,14 @@ async def statusinfo_cmd(interaction):
     status="🟢 BUKA" if CONFIG.get("toko_buka") else "🔴 TUTUP"
     e=discord.Embed(title="📊 STATUS TOKO", description=f"**Status:** {status}\n**Jam:** {CONFIG.get('jam_buka')} - {CONFIG.get('jam_tutup')} WIB\n**Antispam:** {'ON' if CONFIG.get('antispam') else 'OFF'} (Timeout {CONFIG.get('antispam_timeout')} detik)\n**Total Order:** {sum([v['total_order'] for v in ORDERS.values()])}x\n**Total Vouch:** {len(VOUCH_DATA)}", color=discord.Color.from_rgb(88,101,242))
     await interaction.response.send_message(embed=e, ephemeral=True)
-@bot.tree.command(name="statusstore", description="Kirim panel status toko live (Components)")
+@bot.tree.command(name="statusstore", description="Kirim panel status toko live")
 @app_commands.checks.has_permissions(administrator=True)
 async def statusstore_cmd(interaction):
     status="🟢 **TOKO BUKA - ORDER GAS!**" if CONFIG.get("toko_buka") else "🔴 **TOKO TUTUP - ISTIRAHAT!**"
     e=discord.Embed(title="🏪 STATUS TOKO - MIPI WORLD", description=f"{status}\n\nJam: {CONFIG.get('jam_buka')} - {CONFIG.get('jam_tutup')} WIB\n\nKlik `/statusinfo` buat detail!", color=discord.Color.green() if CONFIG.get("toko_buka") else discord.Color.red()); e.set_image(url=BANNER_MIPI)
-    msg=await interaction.response.send_message(embed=e)
-    CONFIG["status_msg_id"]=msg.message_id if hasattr(msg,'message_id') else None; save_config()
+    await interaction.response.send_message(embed=e)
 
-# ========== 6. LEADERBOARD (TOP PEMBELI) ==========
+# ========== 6. LEADERBOARD ==========
 def buat_embed_top(guild):
     if not ORDERS: return discord.Embed(title="🏆 TOP PEMBELI - MIPI WORLD", description="Belum ada yang order! Jadilah yang pertama! 🎀", color=discord.Color.gold())
     sorted_top=sorted(ORDERS.items(), key=lambda x: x[1]["total_rupiah"], reverse=True)[:10]
@@ -409,7 +403,7 @@ class LeaderboardView(View):
 @bot.tree.command(name="leaderboardpanel", description="Kirim panel leaderboard live ke channel (Admin)")
 @app_commands.checks.has_permissions(administrator=True)
 async def leaderboardpanel_cmd(interaction):
-    msg=await interaction.response.send_message(embed=buat_embed_top(interaction.guild), view=LeaderboardView())
+    await interaction.response.send_message(embed=buat_embed_top(interaction.guild), view=LeaderboardView())
     CONFIG["leaderboard_channel_id"]=interaction.channel.id; save_config()
 @bot.tree.command(name="leaderboardrefresh", description="Perbarui pesan live panel leaderboard sekarang")
 @app_commands.checks.has_permissions(administrator=True)
@@ -429,12 +423,10 @@ async def tambahorder_cmd(interaction, user: discord.Member, robux: int, rupiah:
     tambah_order(user.id, robux, rupiah); await interaction.response.send_message(f"✅ {user.mention} +{robux} Robux | {format_rupiah(rupiah)}")
 
 # ========== 7. ADDEMOJI + CLOSEEMOJI - EMOJI GERAK NITRO! ==========
-# Sesi penambahan emoji: /addemoji -> bot nunggu kamu kirim gambar/gif, terus /closeemoji buat tutup sesi!
 @bot.tree.command(name="addemoji", description="Cari dan pasang custom emoji ke server (bisa GIF gerak / Nitro!)")
-@app_commands.describe(nama="Nama emoji, contoh: fire", link="Link gambar / GIF langsung, kosongin kalo mau upload manual", animated="True kalo GIF gerak, False kalo gambar diam")
+@app_commands.describe(nama="Nama emoji, contoh: fire", link="Link gambar / GIF langsung, kosongin kalo mau upload manual", animated="True kalo GIF gerak")
 @app_commands.checks.has_permissions(administrator=True)
 async def addemoji_cmd(interaction, nama: str, link: str = None, animated: bool = False):
-    # Cara 1: Pake link langsung
     if link:
         await interaction.response.defer(ephemeral=True)
         try:
@@ -443,24 +435,22 @@ async def addemoji_cmd(interaction, nama: str, link: str = None, animated: bool 
                     if r.status!=200: await interaction.followup.send("❌ Link gambar ga bisa diakses!"); return
                     data=await r.read()
             emoji=await interaction.guild.create_custom_emoji(name=nama, image=data, reason=f"Add emoji by {interaction.user}")
-            tipe="**ANIMATED / GERAK** <a:gerak:123>" if animated or link.endswith(".gif") else "**DIAM**"
+            tipe="**ANIMATED / GERAK**" if animated or link.endswith(".gif") else "**DIAM**"
             await interaction.followup.send(f"✅ **Emoji berhasil ditambah!**\n\n**Nama:** `{nama}`\n**Tipe:** {tipe}\n**Emoji:** {emoji}\n**Cara pake:** Ketik `:{nama}:` di chat!\n\n> 💡 Kalo GIF, otomatis jadi emoji gerak! Member Nitro bisa pake di semua server!")
             return
         except Exception as e:
-            await interaction.followup.send(f"❌ Gagal: {e}\nPastikan bot punya izin Manage Emojis & file < 256KB (kalo GIF < 512KB)!")
+            await interaction.followup.send(f"❌ Gagal: {e}\nPastikan bot punya izin Manage Emojis & file < 256KB!")
             return
-    # Cara 2: Mode sesi - bot nunggu kamu upload gambar
     CONFIG["emoji_session"]=str(interaction.user.id); save_config()
-    await interaction.response.send_message(f"📤 **SESI ADDEMOJI DIBUKA!**\n\nKamu mau nambah emoji apa?\n\n**Cara:**\n1. Kirim gambar / GIF nya di channel ini (drag & drop aja!)\n2. Bot langsung tanya nama nya!\n3. Ketik `/closeemoji` kalo udah selesai!\n\n> 💡 Kirim file `.gif` biar jadi emoji gerak / Nitro!", ephemeral=True)
+    await interaction.response.send_message(f"📤 **SESI ADDEMOJI DIBUKA!**\n\n**Cara:**\n1. Kirim gambar / GIF nya di channel ini\n2. Bot langsung jadiin emoji!\n3. Ketik `/closeemoji` kalo udah selesai!\n\n> 💡 Kirim file `.gif` biar jadi emoji gerak / Nitro!", ephemeral=True)
 @bot.tree.command(name="closeemoji", description="Tutup sesi penambahan emoji dan bersihkan sesi")
 @app_commands.checks.has_permissions(administrator=True)
 async def closeemoji_cmd(interaction):
     CONFIG["emoji_session"]=None; save_config()
-    await interaction.response.send_message("✅ **Sesi Add Emoji DITUTUP!**\nSemua emoji yang udah ditambah udah tersimpan di server! 🎉", ephemeral=True)
+    await interaction.response.send_message("✅ **Sesi Add Emoji DITUTUP!**", ephemeral=True)
 @bot.event
 async def on_message(message):
     if message.author.bot: return
-    # --- ADDEMOJI SESI: Kalo ada yang kirim gambar pas sesi aktif ---
     if CONFIG.get("emoji_session")==str(message.author.id) and message.attachments:
         try:
             att=message.attachments[0]
@@ -472,23 +462,20 @@ async def on_message(message):
         except Exception as e:
             await message.reply(f"❌ Gagal tambah emoji: {e}")
         return
-    # --- ANTISPAM ---
     if CONFIG.get("antispam") and not message.author.guild_permissions.administrator:
         now=time.time()
         key=message.author.id
         SPAM_TRACK[key].append(now)
-        # Hapus yang udah > 10 detik
         while SPAM_TRACK[key] and now - SPAM_TRACK[key][0] > 10:
             SPAM_TRACK[key].popleft()
-        if len(SPAM_TRACK[key]) >= 6: # 6 pesan dalam 10 detik = spam!
+        if len(SPAM_TRACK[key]) >= 6:
             try:
                 await message.delete()
                 await message.author.timeout(timedelta(seconds=CONFIG.get("antispam_timeout",60)), reason="Antispam MIPI WORLD")
-                await message.channel.send(f"⚠️ {message.author.mention} kena **timeout {CONFIG.get('antispam_timeout')} detik** karena spam! Jangan spam ya!", delete_after=10)
+                await message.channel.send(f"⚠️ {message.author.mention} kena **timeout {CONFIG.get('antispam_timeout')} detik** karena spam!", delete_after=10)
                 SPAM_TRACK[key].clear()
             except: pass
             return
-    # --- TESTIMONI OTOMATIS: !testimoni ---
     if message.channel.name.startswith("🎫") and message.attachments and message.content.lower().startswith("!testimoni"):
         foto=message.attachments[0].url
         buyer=message.mentions[0] if message.mentions else message.author
@@ -498,7 +485,7 @@ async def on_message(message):
         await message.reply(f"✅ **Otomatis jadi Testimoni #{nomor}!** Udah ke-post ke Testimoni + Vouch!")
     await bot.process_commands(message)
 
-# ========== 8. ANTISPAM COMMANDS ==========
+# ========== 8. ANTISPAM ==========
 @bot.tree.command(name="antispamstatus", description="Lihat status & parameter proteksi Anti-Spam")
 async def antispamstatus_cmd(interaction):
     e=discord.Embed(title="🛡️ ANTI-SPAM STATUS", description=f"**Status:** {'🟢 AKTIF' if CONFIG.get('antispam') else '🔴 NONAKTIF'}\n**Timeout:** {CONFIG.get('antispam_timeout')} detik\n**Trigger:** 6 pesan dalam 10 detik = Auto Timeout\n**Yang kebal:** Admin / Owner", color=discord.Color.green() if CONFIG.get("antispam") else discord.Color.red())
@@ -522,7 +509,7 @@ async def antispamuntimeout_cmd(interaction, user: discord.Member):
     except Exception as e:
         await interaction.response.send_message(f"❌ Gagal: {e}")
 
-# ========== 9. AFK - BOT STANDBY DI VOICE 24 JAM ==========
+# ========== 9. AFK ==========
 @bot.tree.command(name="afk", description="Kontrol dan atur bot standby AFK Voice 24 Jam")
 @app_commands.describe(aksi="join / leave", channel="Pilih Voice Channel AFK")
 @app_commands.checks.has_permissions(administrator=True)
@@ -535,8 +522,7 @@ async def afk_cmd(interaction, aksi: str, channel: discord.VoiceChannel = None):
             if interaction.guild.voice_client: await interaction.guild.voice_client.disconnect()
             AFK_VC=await vc_channel.connect()
             CONFIG["afk_channel_id"]=vc_channel.id; save_config()
-            await interaction.response.send_message(f"✅ **Bot AFK standby di {vc_channel.mention}!**\nBot bakal stay 24 Jam di sini, biar server keliatan rame & member betah! 🎧\nKetik `/afk aksi:leave` buat keluarin bot!")
-            # Loop biar bot ga ke-disconnect: cek tiap 60 detik, kalo ke-disconnect, join lagi!
+            await interaction.response.send_message(f"✅ **Bot AFK standby di {vc_channel.mention}!**\nBot bakal stay 24 Jam di sini! 🎧\nKetik `/afk aksi:leave` buat keluarin bot!")
             async def afk_loop():
                 while True:
                     await asyncio.sleep(60)
@@ -613,7 +599,7 @@ async def cekpending_cmd(interaction, gamepass: str, tanggal_beli: str = None):
     harga=d.get("price") or 0; diterima=int(harga*0.7); cair=tgl+timedelta(days=3); cair2=tgl+timedelta(days=7)
     await interaction.followup.send(embed=discord.Embed(title=f"⏳ PENDING • {d['name']}", description=f"**Harga:** {harga} Robux\n**Masuk (70%):** {diterima} Robux\n**Cair:** {cair.strftime('%d %B %Y')} - {cair2.strftime('%d %B %Y')}", color=discord.Color.orange()))
 
-# ========== 11. CEK SALDO + ORDER STATUS + REKBER + GIVEAWAY + VOUCH ==========
+# ========== 11. CEK SALDO + ORDER + REKBER + GIVEAWAY + VOUCH ==========
 @bot.tree.command(name="ceksaldo", description="Cek saldo kamu / orang lain")
 async def ceksaldo_cmd(interaction, user: discord.Member = None):
     target=user or interaction.user; saldo=SALDO.get(str(target.id),0); order=ORDERS.get(str(target.id), {"total_order":0,"total_robux":0,"total_rupiah":0})
@@ -641,7 +627,6 @@ async def panelorderstatus(interaction):
 @app_commands.checks.has_permissions(administrator=True)
 async def updatestatus_cmd(interaction, user: discord.Member, status: str, keterangan: str = ""):
     await interaction.response.send_message(embed=discord.Embed(title=f"📦 UPDATE - {user.display_name}", description=f"**Pembeli:** {user.mention}\n**Status:** **{status}**\n**Ket:** {keterangan or '-'}", color=discord.Color.green()))
-# Rekber
 class RekberModal(Modal, title="Buat Rekber Baru"):
     penjual=TextInput(label="Username Penjual (@Tag)", placeholder="@Penjual", required=True)
     pembeli=TextInput(label="Username Pembeli (@Tag)", placeholder="@Pembeli", required=True)
@@ -676,4 +661,86 @@ async def rekberpanel_cmd(interaction):
 async def historyrekber_cmd(interaction):
     if not REKBER_HISTORY: await interaction.response.send_message("Belum ada history!", ephemeral=True); return
     teks="".join([f"✅ **{h['barang']}** - {h['harga']} | {h['penjual']} ➜ {h['pembeli']} | {h['tanggal']}\n" for h in REKBER_HISTORY[-10:]])
-    await interaction.response.send_message(embed=discord.Embed(title="📜 HISTORY REKBER
+    await interaction.response.send_message(embed=discord.Embed(title="📜 HISTORY REKBER", description=teks, color=discord.Color.green()))
+@bot.tree.command(name="panelhistoryrekber", description="Kirim panel History Rekber")
+@app_commands.checks.has_permissions(administrator=True)
+async def panelhistoryrekber(interaction):
+    await interaction.response.send_message(embed=discord.Embed(title="📜 HISTORY REKBER", description="Rekber selesai auto masuk sini!\nKetik `/historyrekber`", color=discord.Color.green()))
+class GiveawayView(View):
+    def __init__(self): super().__init__(timeout=None)
+    @discord.ui.button(label="🎁 Ikut Giveaway!", style=discord.ButtonStyle.green, emoji="🎁", custom_id="join_giveaway")
+    async def join(self, i, b):
+        mid=str(i.message.id)
+        if mid not in GIVEAWAYS: await i.response.send_message("❌ Giveaway udah berakhir!", ephemeral=True); return
+        if i.user.id in GIVEAWAYS[mid]["peserta"]: await i.response.send_message("❌ Udah ikut!", ephemeral=True); return
+        GIVEAWAYS[mid]["peserta"].append(i.user.id)
+        await i.response.send_message(f"✅ Ikut Giveaway **{GIVEAWAYS[mid]['hadiah']}**!", ephemeral=True)
+@bot.tree.command(name="giveaway", description="Staff: Buat Giveaway baru!")
+@app_commands.checks.has_permissions(administrator=True)
+async def giveaway_cmd(interaction, hadiah: str, menit: int, pemenang: int = 1):
+    await interaction.response.defer()
+    berakhir=datetime.now()+timedelta(minutes=menit)
+    e=discord.Embed(title="🎁 GIVEAWAY - MIPI WORLD!", description=f"**Hadiah:** **{hadiah}**\n**Pemenang:** {pemenang} orang\n**Berakhir:** <t:{int(berakhir.timestamp())}:R>\n\nKlik tombol buat ikut!", color=discord.Color.from_rgb(255,158,187)); e.set_image(url=BANNER_MIPI)
+    await interaction.followup.send(embed=e, view=GiveawayView())
+    msg_id=None
+    async for m in interaction.channel.history(limit=1): msg_id=m.id
+    GIVEAWAYS[str(msg_id)]={"hadiah":hadiah,"berakhir":berakhir,"peserta":[],"pemenang":pemenang}
+    await asyncio.sleep(menit*60)
+    data=GIVEAWAYS.pop(str(msg_id), None)
+    if not data or not data["peserta"]: await interaction.channel.send(f"❌ Giveaway **{hadiah}** berakhir, ga ada yang ikut!"); return
+    winners=random.sample(data["peserta"], min(pemenang, len(data["peserta"])))
+    teks=" ".join([f"<@{w}>" for w in winners])
+    await interaction.channel.send(f"🎉 **GIVEAWAY SELESAI!**\n\n**Hadiah:** {hadiah}\n**Pemenang:** {teks}\n\nChat Admin buat klaim! 🎁")
+@bot.tree.command(name="panelgiveaway", description="Kirim panel Giveaway")
+@app_commands.checks.has_permissions(administrator=True)
+async def panelgiveaway(interaction):
+    await interaction.response.send_message(embed=discord.Embed(title="🎁 GIVEAWAY", description="Giveaway aktif muncul di sini!\nStaff: `/giveaway hadiah:100 Robux menit:60 pemenang:1`", color=discord.Color.from_rgb(255,158,187)))
+@bot.tree.command(name="vouch", description="Staff: Buat Vouch manual pake foto (paste link)")
+@app_commands.checks.has_permissions(administrator=True)
+async def vouch_cmd(interaction, buyer: discord.Member, produk: str, jumlah_robux: str, link_bukti: str = "", pesan: str = ""):
+    nomor=await kirim_vouch_testimoni(interaction.guild, buyer, produk, jumlah_robux, link_bukti, interaction.user, pesan)
+    await interaction.response.send_message(f"✅ **Vouch #{nomor} berhasil!** Udah ke-post ke Testimoni + Vouch!")
+@bot.tree.command(name="testimoni", description="Staff: Buat Testimoni dari foto")
+@app_commands.checks.has_permissions(administrator=True)
+async def testimoni_cmd(interaction, buyer: discord.Member, produk: str, jumlah_robux: str, link_bukti: str = "", pesan: str = ""):
+    nomor=await kirim_vouch_testimoni(interaction.guild, buyer, produk, jumlah_robux, link_bukti, interaction.user, pesan or "Makasih udah order di MIPI STORE! 🎀")
+    await interaction.response.send_message(f"✅ **Testimoni #{nomor} berhasil!**")
+@bot.tree.command(name="panelvouch", description="Kirim panel Vouch")
+@app_commands.checks.has_permissions(administrator=True)
+async def panelvouch(interaction):
+    await interaction.response.send_message(embed=discord.Embed(title="✅ VOUCH - MIPI STORE", description=f"Total Vouch: **{len(VOUCH_DATA)}**\n\nSemua order berhasil muncul di sini otomatis!", color=discord.Color.green()))
+@bot.tree.command(name="paneltestimoni", description="Kirim panel Testimoni")
+@app_commands.checks.has_permissions(administrator=True)
+async def paneltestimoni(interaction):
+    await interaction.response.send_message(embed=discord.Embed(title="⭐ TESTIMONI - MIPI WORLD", description=f"Total Testimoni: **{len(VOUCH_DATA)}**\n\nSemua bukti Robux masuk muncul di sini!", color=discord.Color.from_rgb(255,158,187)))
+
+# ========== 12. HELP ==========
+@bot.tree.command(name="help", description="Tampilkan daftar lengkap seluruh perintah MIPI WORLD")
+async def help_cmd(interaction):
+    e=discord.Embed(title="📚 HELP - SEMUA COMMAND MIPI WORLD", description="**🛒 TOKO:**\n`/ticket` / `/ticketpanel` - Buka ticket order\n`/pricelist` - Harga Robux\n`/pricelistnitro` - Harga Nitro & Boost\n`/editpricelist` - Ubah harga (Admin)\n`/pay` - Instruksi bayar QRIS / DANA\n`/rules` - Aturan transaksi\n`/statusopen` / `/statusclose` / `/statusinfo` / `/statusstore` - Status toko\n`/operational` - Jam operasional\n`/announcement` - Buat pengumuman (Admin)\n\n**🏆 LEADERBOARD:**\n`/leaderboardpanel` / `/leaderboardrefresh` / `/leaderboardview` - Top Spender\n`/toppembeli` / `/tambahorder`\n\n**💳 SALDO & ORDER:**\n`/ceksaldo` / `/tambahsaldo` / `/cekorder` / `/updatestatus`\n\n**🔍 ROBLOX:**\n`/cekavatar` / `/cekrbx` / `/cekgamepass` / `/cekpending`\n\n**🤝 REKBER:**\n`/rekberpanel` / `/historyrekber`\n\n**⭐ VOUCH:**\n`/vouch` / `/testimoni`\nDi ticket: Kirim foto + `!testimoni @buyer 500 Robux`\n\n**🎁 GIVEAWAY:**\n`/giveaway` - Buat giveaway\n\n**😀 EMOJI GERAK / NITRO:**\n`/addemoji` - Tambah emoji (bisa GIF gerak!)\n`/closeemoji` - Tutup sesi addemoji\n\n**🛡️ ANTI-SPAM:**\n`/antispamstatus` / `/antispamtimeout` / `/antispamtoggle` / `/antispamuntimeout`\n\n**🎧 AFK:**\n`/afk aksi:join / leave` - Bot standby di VC 24 Jam\n\n**⚙️ ADMIN:**\n`/setup` / `/verif` / `/giverole` / `/help`", color=discord.Color.from_rgb(88,101,242))
+    e.set_image(url=BANNER_MIPI)
+    e.set_footer(text="MIPI WORLD • Ketik /help kapan aja!")
+    await interaction.response.send_message(embed=e, ephemeral=True)
+
+# ========== 13. ON READY + WELCOME ==========
+@bot.event
+async def on_member_join(member):
+    ch=discord.utils.get(member.guild.text_channels, name="👋┃𝖶𝖾𝗅𝖼𝗈𝗆𝖾")
+    if not ch: return
+    e=discord.Embed(title="👋 WELCOME", description=f"{member.mention}", color=discord.Color.from_rgb(88,101,242)); e.set_image(url=BANNER_MIPI)
+    await ch.send(embed=e)
+@bot.event
+async def on_ready():
+    print(f"{bot.user} Online! - MIPI WORLD + 1ST MARKET SYSTEM")
+    bot.add_view(VerifyView()); bot.add_view(TicketView()); bot.add_view(VisendView()); bot.add_view(CloseTicketView()); bot.add_view(TicketActionView()); bot.add_view(PricelistView()); bot.add_view(LeaderboardView()); bot.add_view(RekberPanelView()); bot.add_view(GiveawayView()); bot.add_view(RekberSelesaiView()); bot.add_view(PayView())
+    try:
+        synced=await bot.tree.sync(); print(f"Sync {len(synced)} command!")
+    except Exception as ex: print(ex)
+    try:
+        if CONFIG.get("afk_channel_id"):
+            ch=bot.get_channel(CONFIG["afk_channel_id"])
+            if ch and not ch.guild.voice_client:
+                await ch.connect()
+    except: pass
+
+bot.run(TOKEN)
