@@ -17,6 +17,23 @@ BANNER_TICKET_URL = "https://raw.githubusercontent.com/1world97/MIPI-WORLD/main/
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# ========== HARGA VISEND - BISA DIUBAH DI DC ==========
+HARGA_VISEND = {
+    "500": 75000,
+    "1000": 150000,
+    "2000": 300000,
+    "3000": 450000,
+    "4000": 600000,
+    "5000": 750000,
+    "100_ecer": 16000,
+    "200_ecer": 32000,
+    "300_ecer": 48000,
+    "400_ecer": 64000,
+}
+
+def format_rupiah(nominal):
+    return f"Rp {nominal:,}".replace(",", ".")
+
 # ========== 1. SETUP FINAL - ROLE + CHANNEL + KATEGORI ==========
 @bot.tree.command(name="setup", description="Setup MIPI WORLD FINAL - Role + Channel + Kategori")
 @app_commands.checks.has_permissions(administrator=True)
@@ -133,32 +150,35 @@ async def verif_slash(interaction: discord.Interaction):
     embed.set_image(url=BANNER_MIPI)
     await interaction.response.send_message(embed=embed, view=VerifyView())
 
-# ========== 4. TICKET - AUTO QRIS ==========
-class TicketView(View):
+# ========== 4. TICKET - 1 PANEL 5 TICKET + VISEND ==========
+class VisendSelect(Select):
+    def __init__(self):
+        options = []
+        for key, harga in HARGA_VISEND.items():
+            jumlah = key.replace("_ecer", " Eceran")
+            options.append(discord.SelectOption(
+                label=f"{jumlah} Robux - {format_rupiah(harga)}",
+                description=f"Klik untuk pilih {jumlah} Robux",
+                emoji="⚡",
+                value=key
+            ))
+        super().__init__(placeholder="⚡ Pilih Jumlah Visend - Harga Langsung Muncul!", min_values=1, max_values=1, options=options, custom_id="visend_select")
+    async def callback(self, interaction: discord.Interaction):
+        key = self.values[0]
+        harga = HARGA_VISEND[key]
+        jumlah = key.replace("_ecer", " Eceran")
+        e = discord.Embed(
+            title="⚡  VISEND DIPILIH!",
+            description=f"**Kamu pilih:** {jumlah} Robux\n**Harga:** **{format_rupiah(harga)}**\n\nSilahkan transfer ke QRIS di bawah, terus kirim bukti TF di ticket ini!\nAdmin langsung proses! ⚡",
+            color=discord.Color.from_rgb(255, 193, 7)
+        )
+        e.set_image(url=QRIS_URL)
+        await interaction.response.send_message(embed=e)
+
+class VisendView(View):
     def __init__(self):
         super().__init__(timeout=None)
-    @discord.ui.button(label="🎫 Buka Ticket Order", style=discord.ButtonStyle.blurple, custom_id="ticket_btn")
-    async def open_ticket(self, interaction: discord.Interaction, button: Button):
-        guild = interaction.guild
-        cat = discord.utils.get(guild.categories, name="⎯⎯⎯• Mipi Store")
-        if not cat:
-            cat = discord.utils.get(guild.categories, name="🛒┃𝖬𝗂𝗉𝗂 𝖲𝗍𝗈𝗋𝖾")
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
-        }
-        ch = await guild.create_text_channel(f"🎫┃{interaction.user.name}", category=cat, overwrites=overwrites)
-        embed1 = discord.Embed(title="🎫  TICKET ORDER - MIPI WORLD", description=f"Halo {interaction.user.mention}!\n\nSelamat datang di ticket order MIPI WORLD!\nSilakan isi format order di bawah & langsung scan QRIS untuk pembayaran!", color=discord.Color.from_rgb(88,101,242))
-        embed1.set_image(url=BANNER_TICKET_URL)
-        await ch.send(embed=embed1)
-        embed2 = discord.Embed(title="📝  FORMAT ORDER", description="**• Nama Roblox:**\n**• Produk:** (Send / Vilog / Pluss)\n**• Nominal:**\n**• Bukti TF:** (Kirim foto bukti transfer di sini)\n\nAdmin akan segera merespon!", color=discord.Color.green())
-        await ch.send(embed=embed2)
-        embed3 = discord.Embed(title="💰  PEMBAYARAN - QRIS MIPI WORLD", description="Silakan scan QR di bawah untuk bayar!\n\n**Nama:** Rafi Store\n**NMID:** ID1026603621750\n\n⚠️ **PENTING:**\n• Bayar sesuai nominal order\n• Kirim bukti TF di ticket ini\n• Jangan kirim bukti TF palsu!", color=discord.Color.from_rgb(255, 193, 7))
-        embed3.set_image(url=QRIS_URL)
-        embed3.set_footer(text="MIPI WORLD • QRIS Otomatis | Rafi Store")
-        await ch.send(embed=embed3, view=CloseTicketView())
-        await interaction.response.send_message(f"✅ Ticket kamu udah dibuat: {ch.mention}\nQRIS udah dikirim otomatis di dalam ticket!", ephemeral=True)
+        self.add_item(VisendSelect())
 
 class CloseTicketView(View):
     def __init__(self):
@@ -169,12 +189,88 @@ class CloseTicketView(View):
         await asyncio.sleep(5)
         await interaction.channel.delete()
 
-@bot.tree.command(name="ticket", description="Kirim panel ticket order")
+class TicketView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    async def buat_ticket(self, interaction: discord.Interaction, jenis: str, judul: str):
+        guild = interaction.guild
+        cat = discord.utils.get(guild.categories, name="⎯⎯⎯• Mipi Store")
+        if not cat:
+            cat = discord.utils.get(guild.categories, name="⎯⎯⎯• Ticket & Order")
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
+        }
+        ch = await guild.create_text_channel(f"🎫┃{jenis}-{interaction.user.name}", category=cat, overwrites=overwrites)
+        embed1 = discord.Embed(title=f"🎫  TICKET {judul} - MIPI WORLD", description=f"Halo {interaction.user.mention}!\n\nSelamat datang di ticket {judul}!\nSilakan isi format & langsung scan QRIS!", color=discord.Color.from_rgb(88,101,242))
+        embed1.set_image(url=BANNER_TICKET_URL)
+        await ch.send(embed=embed1)
+        if jenis == "visend":
+            embed_harga = discord.Embed(title="⚡  HARGA VISEND - PILIH LANGSUNG DI SINI!", description="Pilih jumlah di bawah, harga langsung muncul!\nGa perlu tanya-tanya lagi!", color=discord.Color.from_rgb(255, 193, 7))
+            daftar = ""
+            for key, harga in HARGA_VISEND.items():
+                jumlah = key.replace("_ecer", " Eceran")
+                daftar += f"• **{jumlah} Robux** : {format_rupiah(harga)}\n"
+            embed_harga.add_field(name="📋 Daftar Harga Saat Ini:", value=daftar, inline=False)
+            await ch.send(embed=embed_harga, view=VisendView())
+        embed2 = discord.Embed(title="📝  FORMAT ORDER", description="**• Nama Roblox:**\n**• Produk:** (Send / Vilog / Pluss / Visend / Akun)\n**• Nominal:**\n**• Bukti TF:** (Kirim foto di sini)\n\nAdmin akan segera merespon!", color=discord.Color.green())
+        await ch.send(embed=embed2)
+        embed3 = discord.Embed(title="💰  PEMBAYARAN - QRIS MIPI WORLD", description="Silakan scan QR di bawah untuk bayar!\n\n**Nama:** Rafi Store\n**NMID:** ID1026603621750\n\n⚠️ **PENTING:**\n• Bayar sesuai nominal order\n• Kirim bukti TF di ticket ini", color=discord.Color.from_rgb(255, 193, 7))
+        embed3.set_image(url=QRIS_URL)
+        embed3.set_footer(text="MIPI WORLD • QRIS Otomatis | Rafi Store")
+        await ch.send(embed=embed3, view=CloseTicketView())
+        return ch
+
+    @discord.ui.button(label="Robux Vilog", style=discord.ButtonStyle.blurple, custom_id="ticket_vilog", emoji="🎫")
+    async def vilog(self, interaction: discord.Interaction, button: Button):
+        ch = await self.buat_ticket(interaction, "vilog", "ROBUX VILOG")
+        await interaction.response.send_message(f"✅ Ticket Vilog dibuat: {ch.mention}", ephemeral=True)
+    @discord.ui.button(label="Acc 8 Bit", style=discord.ButtonStyle.green, custom_id="ticket_8bit", emoji="🌟")
+    async def bit8(self, interaction: discord.Interaction, button: Button):
+        ch = await self.buat_ticket(interaction, "8bit", "ACC 8 BIT")
+        await interaction.response.send_message(f"✅ Ticket 8 Bit dibuat: {ch.mention}", ephemeral=True)
+    @discord.ui.button(label="Roblox Plus", style=discord.ButtonStyle.grey, custom_id="ticket_plus", emoji="✨")
+    async def plus(self, interaction: discord.Interaction, button: Button):
+        ch = await self.buat_ticket(interaction, "plus", "ROBLOX PLUS")
+        await interaction.response.send_message(f"✅ Ticket Plus dibuat: {ch.mention}", ephemeral=True)
+    @discord.ui.button(label="BELI AKUN", style=discord.ButtonStyle.grey, custom_id="ticket_akun", emoji="🛒")
+    async def akun(self, interaction: discord.Interaction, button: Button):
+        ch = await self.buat_ticket(interaction, "akun", "BELI AKUN")
+        await interaction.response.send_message(f"✅ Ticket Beli Akun dibuat: {ch.mention}", ephemeral=True)
+    @discord.ui.button(label="VISEND / FAST SEND", style=discord.ButtonStyle.red, custom_id="ticket_visend", emoji="⚡")
+    async def visend(self, interaction: discord.Interaction, button: Button):
+        ch = await self.buat_ticket(interaction, "visend", "VISEND")
+        await interaction.response.send_message(f"✅ Ticket Visend dibuat: {ch.mention}\nPilih harga langsung di dalam ticket!", ephemeral=True)
+
+@bot.tree.command(name="ticket", description="Kirim panel ticket order - 1 Panel 5 Ticket")
 @app_commands.checks.has_permissions(administrator=True)
 async def ticket_slash(interaction: discord.Interaction):
-    embed = discord.Embed(title="🛒  ORDER ROBUX - MIPI WORLD", description="Mau order Robux? Klik tombol di bawah!\n\n📤 Robux Send\n📦 Robux Vilog\n⭐ Roblox Pluss\n\nAdmin fast respon!", color=discord.Color.from_rgb(88,101,242))
+    embed = discord.Embed(title="🎀  WELCOME TO MIPI STORE 🎀", description="HALLO KAKK!! Selamat datang di Mipi Store!\n\nMau order apa? Klik tombol di bawah!\n\n🎫 **Robux Vilog**\n🌟 **Acc 8 Bit**\n✨ **Roblox Plus**\n🛒 **Beli Akun**\n⚡ **Visend / Fast Send** - Harga Bisa Dipilih Langsung!\n\nAdmin fast respon!", color=discord.Color.from_rgb(255, 158, 187))
     embed.set_image(url=BANNER_MIPI)
     await interaction.response.send_message(embed=embed, view=TicketView())
+
+@bot.tree.command(name="sethargavisend", description="Ganti harga Visend langsung dari DC!")
+@app_commands.describe(jumlah="Contoh: 500 / 1000 / 100_ecer", harga_baru="Harga baru tanpa titik, contoh: 80000")
+@app_commands.checks.has_permissions(administrator=True)
+async def setharga_visend(interaction: discord.Interaction, jumlah: str, harga_baru: int):
+    if jumlah not in HARGA_VISEND:
+        daftar = ", ".join(HARGA_VISEND.keys())
+        await interaction.response.send_message(f"❌ Jumlah `{jumlah}` ga ada! Yang ada: {daftar}", ephemeral=True)
+        return
+    harga_lama = HARGA_VISEND[jumlah]
+    HARGA_VISEND[jumlah] = harga_baru
+    await interaction.response.send_message(f"✅ **HARGA VISEND BERHASIL DIUBAH!**\n\n**{jumlah} Robux:** {format_rupiah(harga_lama)} ➜ **{format_rupiah(harga_baru)}**\n\nHarga baru langsung kepake buat ticket Visend berikutnya! ⚡", ephemeral=False)
+
+@bot.tree.command(name="cekhargavisend", description="Lihat semua harga Visend saat ini")
+async def cekharga_visend(interaction: discord.Interaction):
+    daftar = ""
+    for key, harga in HARGA_VISEND.items():
+        jumlah = key.replace("_ecer", " Eceran")
+        daftar += f"• **{jumlah} Robux** : {format_rupiah(harga)}\n"
+    e = discord.Embed(title="⚡  HARGA VISEND SAAT INI", description=daftar, color=discord.Color.from_rgb(255, 193, 7))
+    await interaction.response.send_message(embed=e, ephemeral=True)
 
 # ========== 5. PRICELIST ==========
 class PricelistSelect(Select):
@@ -396,6 +492,7 @@ async def on_ready():
     print(f"{bot.user} Online!")
     bot.add_view(VerifyView())
     bot.add_view(TicketView())
+    bot.add_view(VisendView())
     bot.add_view(CloseTicketView())
     bot.add_view(PricelistView())
     try:
