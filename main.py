@@ -1,11 +1,12 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-from discord.ui import View, Select, Button
+from discord.ui import View, Select, Button, Modal, TextInput
 import asyncio
 import aiohttp
 import re
 import os
+import json
 from datetime import datetime, timedelta
 
 # ========== SETTING UTAMA ==========
@@ -13,38 +14,171 @@ BANNER_MIPI = os.getenv("BANNER_MIPI", "https://raw.githubusercontent.com/1world
 TOKEN = os.getenv("TOKEN")
 QRIS_URL = "https://raw.githubusercontent.com/1world97/MIPI-WORLD/main/IMG_6533.jpeg"
 BANNER_TICKET_URL = "https://raw.githubusercontent.com/1world97/MIPI-WORLD/main/56a25f63-21b9-56b4-851c-d5d1c6b25943.jpeg"
+DANA_NOMOR = "0895-2642-4213"
+DANA_NAMA = "Rafi Store"
 
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ========== HARGA VISEND - BISA DIUBAH DI DC ==========
-HARGA_VISEND = {
-    "500": 75000,
-    "1000": 150000,
-    "2000": 300000,
-    "3000": 450000,
-    "4000": 600000,
-    "5000": 750000,
-    "100_ecer": 16000,
-    "200_ecer": 32000,
-    "300_ecer": 48000,
-    "400_ecer": 64000,
+# ========== HARGA VISEND - PERMANEN PAKE FILE ==========
+FILE_HARGA = "harga_visend.json"
+HARGA_DEFAULT = {
+    "500": 75000, "1000": 150000, "2000": 300000, "3000": 450000,
+    "4000": 600000, "5000": 750000,
+    "100_ecer": 16000, "200_ecer": 32000, "300_ecer": 48000, "400_ecer": 64000,
 }
+if os.path.exists(FILE_HARGA):
+    try:
+        with open(FILE_HARGA, "r") as f:
+            HARGA_VISEND = json.load(f)
+    except:
+        HARGA_VISEND = HARGA_DEFAULT.copy()
+else:
+    HARGA_VISEND = HARGA_DEFAULT.copy()
+
+def simpan_harga():
+    with open(FILE_HARGA, "w") as f:
+        json.dump(HARGA_VISEND, f, indent=2)
 
 def format_rupiah(nominal):
     return f"Rp {nominal:,}".replace(",", ".")
 
-# ========== 1. SETUP FINAL - ROLE + CHANNEL + KATEGORI ==========
-@bot.tree.command(name="setup", description="Setup MIPI WORLD FINAL - Role + Channel + Kategori")
+# ========== HELPER BUAT BIKIN TICKET DARI FORM ==========
+async def kirim_ticket_dari_form(interaction: discord.Interaction, jenis: str, judul: str, data_form: dict):
+    guild = interaction.guild
+    cat = discord.utils.get(guild.categories, name="⎯⎯⎯• Mipi Store")
+    if not cat:
+        cat = discord.utils.get(guild.categories, name="⎯⎯⎯• Ticket & Order")
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+        guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
+    }
+    ch = await guild.create_text_channel(f"🎫┃{jenis}-{interaction.user.name}", category=cat, overwrites=overwrites)
+
+    embed1 = discord.Embed(title=f"🎫  TICKET {judul} - MIPI WORLD", description=f"Halo {interaction.user.mention}!\n\nTicket kamu udah dibuat! Format kamu udah terisi otomatis di bawah!", color=discord.Color.from_rgb(88,101,242))
+    embed1.set_image(url=BANNER_TICKET_URL)
+    await ch.send(embed=embed1)
+
+    isi = ""
+    for k, v in data_form.items():
+        if "SANDI" in k.upper() or "PASSWORD" in k.upper():
+            isi += f"**{k}:** ||{v}||\n"
+        else:
+            isi += f"**{k}:** {v}\n"
+    if jenis == "visend":
+        paket = data_form.get("Paket yang dipilih", "")
+        for key, harga in HARGA_VISEND.items():
+            jumlah = key.replace("_ecer", "")
+            if jumlah in paket:
+                isi += f"\n**💰 Total Bayar:** **{format_rupiah(harga)}**\n"
+                break
+
+    embed_form = discord.Embed(title="📝  FORMAT ORDER - UDAH TERISI!", description=isi, color=discord.Color.green())
+    embed_form.set_footer(text=f"Order dari {interaction.user} | {datetime.now().strftime('%d %B %Y %H:%M')}")
+    await ch.send(embed=embed_form)
+
+    # EMBED PEMBAYARAN - QRIS + DANA
+    embed3 = discord.Embed(
+        title="💰  PEMBAYARAN - QRIS / DANA MIPI WORLD",
+        description=f"Silakan pilih salah satu pembayaran di bawah!\n\n**1. QRIS MIPI WORLD**\nNama: Rafi Store\nNMID: ID1026603621750\n\n**2. DANA**\nNomor: **{DANA_NOMOR}**\nAtas Nama: {DANA_NAMA}\n\n⚠️ **PENTING:**\n• Bayar sesuai nominal order\n• Kirim bukti TF di ticket ini\n• Kalo pake DANA, tulis username kamu di keterangan transfer ya!",
+        color=discord.Color.from_rgb(255, 193, 7)
+    )
+    embed3.set_image(url=QRIS_URL)
+    embed3.set_footer(text="MIPI WORLD • QRIS / DANA | Rafi Store")
+    await ch.send(embed=embed3, view=CloseTicketView())
+    return ch
+
+# ========== MODAL / FORM PER TICKET ==========
+
+# 1. VILOG - Username + Kata Sandi
+class VilogModal(Modal, title="Pesanan Robux Vilog"):
+    username = TextInput(label="Username Roblox", placeholder="UsernameRoblox", required=True, max_length=30)
+    katasandi = TextInput(label="Kata Sandi Roblox", placeholder="Isi password akun kamu (Rahasia!)", required=True, style=discord.TextStyle.short)
+    paket = TextInput(label="Paket yang dipilih", placeholder="Contoh: 1000 Robux", required=True)
+    pembayaran = TextInput(label="Metode Pembayaran", placeholder="QRIS / DANA", default="QRIS", required=True)
+    async def on_submit(self, interaction: discord.Interaction):
+        data = {
+            "Nickname Roblox": interaction.user.display_name,
+            "Username": self.username.value,
+            "Kata Sandi": self.katasandi.value,
+            "Paket yang dipilih": self.paket.value,
+            "Metode Pembayaran": self.pembayaran.value
+        }
+        ch = await kirim_ticket_dari_form(interaction, "vilog", "ROBUX VILOG", data)
+        await interaction.response.send_message(f"✅ Ticket Vilog dibuat: {ch.mention}\nFormat kamu udah terisi otomatis!", ephemeral=True)
+
+# 2. VISEND - Nickname + Username
+class VisendModal(Modal, title="Pesanan Robux Visend"):
+    nickname = TextInput(label="Nickname Roblox", placeholder="Nickname Roblox kamu", required=True)
+    username = TextInput(label="Username", placeholder="UsernameRoblox", required=True)
+    paket = TextInput(label="Paket yang dipilih", placeholder="Contoh: 500 Robux / 100 Eceran", required=True)
+    pembayaran = TextInput(label="Metode Pembayaran", placeholder="QRIS / DANA", default="QRIS", required=True)
+    async def on_submit(self, interaction: discord.Interaction):
+        data = {
+            "Nickname Roblox": self.nickname.value,
+            "Username": self.username.value,
+            "Paket yang dipilih": self.paket.value,
+            "Metode Pembayaran": self.pembayaran.value
+        }
+        ch = await kirim_ticket_dari_form(interaction, "visend", "VISEND", data)
+        await interaction.response.send_message(f"✅ Ticket Visend dibuat: {ch.mention}\nHarga otomatis kehitung!", ephemeral=True)
+
+# 3. ACC 8 BIT - CUMA 3! USERNAME + PAKET + PEMBAYARAN
+class Bit8Modal(Modal, title="Pesanan Acc 8 Bit"):
+    username = TextInput(label="Username Roblox", placeholder="UsernameRoblox kamu", required=True, max_length=30)
+    paket = TextInput(label="Paket yang dipilih", placeholder="Contoh: Acc 8 Bit / Acc 8 Bit + 500 Robux", required=True)
+    pembayaran = TextInput(label="Metode Pembayaran", placeholder="QRIS / DANA", default="QRIS", required=True)
+    async def on_submit(self, interaction: discord.Interaction):
+        data = {
+            "Username": self.username.value,
+            "Paket yang dipilih": self.paket.value,
+            "Metode Pembayaran": self.pembayaran.value
+        }
+        ch = await kirim_ticket_dari_form(interaction, "8bit", "ACC 8 BIT", data)
+        await interaction.response.send_message(f"✅ Ticket 8 Bit dibuat: {ch.mention}", ephemeral=True)
+
+# 4. ROBLOX PLUS - Username + Password + Durasi
+class PlusModal(Modal, title="Pesanan Roblox Plus"):
+    username = TextInput(label="Username Roblox", placeholder="UsernameRoblox", required=True)
+    katasandi = TextInput(label="Kata Sandi Roblox", placeholder="Password akun (Rahasia!)", required=True)
+    paket = TextInput(label="Paket Plus yang dipilih", placeholder="Contoh: 1 Bulan / Plus+ 1000 Robux", required=True)
+    pembayaran = TextInput(label="Metode Pembayaran", placeholder="QRIS / DANA", default="QRIS", required=True)
+    async def on_submit(self, interaction: discord.Interaction):
+        data = {
+            "Username": self.username.value,
+            "Kata Sandi": self.katasandi.value,
+            "Paket yang dipilih": self.paket.value,
+            "Metode Pembayaran": self.pembayaran.value
+        }
+        ch = await kirim_ticket_dari_form(interaction, "plus", "ROBLOX PLUS", data)
+        await interaction.response.send_message(f"✅ Ticket Plus dibuat: {ch.mention}", ephemeral=True)
+
+# 5. BELI AKUN - Akun yang dicari + Budget
+class AkunModal(Modal, title="Pesanan Beli Akun"):
+    akun_dicari = TextInput(label="Akun Yang Dicari", placeholder="Contoh: Akun R6, Akun Ada Limited", required=True, style=discord.TextStyle.paragraph)
+    budget = TextInput(label="Budget Kamu", placeholder="Contoh: Rp 200.000", required=True)
+    username = TextInput(label="Username Roblox Kamu", placeholder="UsernameRoblox", required=True)
+    pembayaran = TextInput(label="Metode Pembayaran", placeholder="QRIS / DANA", default="QRIS", required=True)
+    async def on_submit(self, interaction: discord.Interaction):
+        data = {
+            "Akun Yang Dicari": self.akun_dicari.value,
+            "Budget": self.budget.value,
+            "Username Pembeli": self.username.value,
+            "Metode Pembayaran": self.pembayaran.value
+        }
+        ch = await kirim_ticket_dari_form(interaction, "akun", "BELI AKUN", data)
+        await interaction.response.send_message(f"✅ Ticket Beli Akun dibuat: {ch.mention}", ephemeral=True)
+
+# ========== 1. SETUP ==========
+@bot.tree.command(name="setup", description="Setup MIPI WORLD FINAL")
 @app_commands.checks.has_permissions(administrator=True)
 async def setup_slash(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     guild = interaction.guild
     everyone = guild.default_role
-
     def cari_role(nama):
         return discord.utils.get(guild.roles, name=nama)
-
     roles_data = [
         ("👑┃Owner", discord.Color.red(), True),
         ("🛡️┃Admin", discord.Color.orange(), True),
@@ -60,30 +194,25 @@ async def setup_slash(interaction: discord.Interaction):
         if not r:
             r = await guild.create_role(name=nama, colour=warna, hoist=pisah, mentionable=True, reason="Setup MIPI WORLD")
         created_roles[nama] = r
-
     owner_role = created_roles["👑┃Owner"]
     admin_role = created_roles["🛡️┃Admin"]
     staff_role = created_roles["🎧┃Staff"]
     mod_role = created_roles["🛠️┃Moderator"]
     member_role = created_roles["✅┃Member"]
-
     try:
         await interaction.user.add_roles(owner_role)
     except: pass
-
     public = {everyone: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True)}
     public_readonly = {everyone: discord.PermissionOverwrite(view_channel=True, send_messages=False)}
     verify_only = {everyone: discord.PermissionOverwrite(view_channel=True, send_messages=True), member_role: discord.PermissionOverwrite(view_channel=False)}
     member_only = {everyone: discord.PermissionOverwrite(view_channel=False), member_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True), staff_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True), admin_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True), mod_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True)}
     staff_only = {everyone: discord.PermissionOverwrite(view_channel=False), staff_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True), admin_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True), owner_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, connect=True, speak=True)}
-
     cat1 = await guild.create_category("⎯⎯⎯• Public Area")
     await guild.create_text_channel("👋┃𝖶𝖾𝗅𝖼𝗈𝗆𝖾", category=cat1, overwrites=public_readonly)
     await guild.create_text_channel("📜┃𝖱𝗎𝗅𝖾𝗌", category=cat1, overwrites=public_readonly)
     await guild.create_text_channel("✅┃𝖵𝖾𝗋𝗂𝖿𝗂𝗄𝖺𝗌𝗂", category=cat1, overwrites=verify_only)
     await guild.create_text_channel("📢┃𝖯𝖾𝗇𝗀𝗎𝗆𝗎𝗆𝖺𝗇", category=cat1, overwrites=public_readonly)
     await guild.create_text_channel("💬┃𝖢𝗁𝖺𝗍・𝖯𝗎𝖻𝗅𝗂𝗄", category=cat1, overwrites=public)
-
     cat2 = await guild.create_category("⎯⎯⎯• Mipi Store")
     await guild.create_text_channel("🛒┃𝖮𝗋𝖽𝖾𝗋・𝖱𝗈𝖻𝗎𝗑", category=cat2, overwrites=public_readonly)
     await guild.create_text_channel("🏆┃𝖳𝗈𝗉・𝖯𝖾𝗆𝖻𝖾𝗅𝗂", category=cat2, overwrites=public_readonly)
@@ -91,7 +220,6 @@ async def setup_slash(interaction: discord.Interaction):
     await guild.create_text_channel("📦┃𝖮𝗋𝖽𝖾𝗋・𝖲𝗍𝖺𝗍𝗎𝗌", category=cat2, overwrites=public_readonly)
     await guild.create_text_channel("💬┃𝖵𝗈𝗎𝖼𝗁", category=cat2, overwrites=public)
     await guild.create_text_channel("⭐┃𝖳𝖾𝗌𝗍𝗂𝗆𝗈𝗇𝗂", category=cat2, overwrites=public)
-
     cat3 = await guild.create_category("⎯⎯⎯• Member Area")
     await guild.create_text_channel("💭┃𝖢𝗁𝖺𝗍・𝖬𝖾𝗆𝖻𝖾𝗋", category=cat3, overwrites=member_only)
     await guild.create_text_channel("📸┃𝖦𝖺𝗅𝗅𝖾𝗋𝗒・𝖱𝗈𝖻𝗅𝗈𝗑", category=cat3, overwrites=member_only)
@@ -99,25 +227,20 @@ async def setup_slash(interaction: discord.Interaction):
     await guild.create_text_channel("🎁┃𝖦𝗂𝗏𝖾𝖺𝗐𝖺𝗒", category=cat3, overwrites=member_only)
     await guild.create_text_channel("🔍┃𝖢𝖾𝗄・𝖠𝗏𝖺𝗍𝖺𝗋", category=cat3, overwrites=member_only)
     await guild.create_text_channel("💰┃𝖢𝖾𝗄・𝖱𝖻𝗑", category=cat3, overwrites=member_only)
-
     cat4 = await guild.create_category("⎯⎯⎯• Rekber Area")
     await guild.create_text_channel("🤝┃𝖱𝖾𝗄𝖻𝖾𝗋・𝖯𝖺𝗇𝖾𝗅", category=cat4, overwrites=public_readonly)
     await guild.create_text_channel("📜┃𝖧𝗂𝗌𝗍𝗈𝗋𝗒・𝖱𝖾𝗄𝖻𝖾𝗋", category=cat4, overwrites=public_readonly)
-
     cat5 = await guild.create_category("⎯⎯⎯• Voice Public")
     await guild.create_text_channel("✨〢𝖲etting・𝖵oice", category=cat5, overwrites=public)
     await guild.create_voice_channel("🔈〢Voice・𝖯𝗎𝖻𝗅𝗂𝗄", category=cat5, overwrites=public)
     await guild.create_voice_channel("💤┃𝖠𝖿𝗄", category=cat5, overwrites=public)
-
     cat6 = await guild.create_category("⎯⎯⎯• Voice Member")
     await guild.create_voice_channel("🔈〢Voice・𝖬𝖾𝗆𝖻𝖾𝗋", category=cat6, overwrites=member_only)
     await guild.create_voice_channel("💤┃𝖠𝖿𝗄", category=cat6, overwrites=member_only)
-
     cat7 = await guild.create_category("⎯⎯⎯• Staff Only")
     await guild.create_text_channel("🔕┃𝖱𝗎𝖺𝗇𝗀・𝖲𝗍𝖺𝖿", category=cat7, overwrites=staff_only)
     await guild.create_voice_channel("☏〢Staff・Voice", category=cat7, overwrites=staff_only)
-
-    await interaction.followup.send("✅ Setup MIPI WORLD FINAL Berhasil!\n\n**Role:** 👑 Owner | 🛡️ Admin | 🎧 Staff | 🛠️ Moderator | ✅ Member | 🛒 Buyer\n**Channel:** Public Area • Mipi Store • Member Area • Rekber Area • Voice Public • Voice Member • Staff Only\n\nKamu otomatis jadi 👑 Owner!", ephemeral=True)
+    await interaction.followup.send("✅ Setup MIPI WORLD FINAL Berhasil!", ephemeral=True)
 
 # ========== 2. GIVERROLE ==========
 @bot.tree.command(name="giverole", description="Kasih role ke seseorang")
@@ -141,37 +264,28 @@ class VerifyView(View):
         if unverif_role:
             try: await interaction.user.remove_roles(unverif_role)
             except: pass
-        await interaction.response.send_message("✅ Kamu berhasil terverifikasi! Selamat datang di MIPI WORLD!\nKamu sekarang bisa akses Member Area!", ephemeral=True)
+        await interaction.response.send_message("✅ Kamu berhasil terverifikasi! Selamat datang di MIPI WORLD!", ephemeral=True)
 
 @bot.tree.command(name="verif", description="Kirim panel verifikasi")
 @app_commands.checks.has_permissions(administrator=True)
 async def verif_slash(interaction: discord.Interaction):
-    embed = discord.Embed(title="✅  VERIFIKASI MEMBER", description="Klik tombol di bawah untuk verifikasi & buka akses semua channel!\n\n**MIPI WORLD • Aman • Cepat • Terpercaya**", color=discord.Color.green())
+    embed = discord.Embed(title="✅  VERIFIKASI MEMBER", description="Klik tombol di bawah untuk verifikasi & buka akses semua channel!", color=discord.Color.green())
     embed.set_image(url=BANNER_MIPI)
     await interaction.response.send_message(embed=embed, view=VerifyView())
 
-# ========== 4. TICKET - 1 PANEL 5 TICKET + VISEND ==========
+# ========== 4. TICKET - 1 PANEL 5 TICKET ==========
 class VisendSelect(Select):
     def __init__(self):
         options = []
         for key, harga in HARGA_VISEND.items():
             jumlah = key.replace("_ecer", " Eceran")
-            options.append(discord.SelectOption(
-                label=f"{jumlah} Robux - {format_rupiah(harga)}",
-                description=f"Klik untuk pilih {jumlah} Robux",
-                emoji="⚡",
-                value=key
-            ))
+            options.append(discord.SelectOption(label=f"{jumlah} Robux - {format_rupiah(harga)}", description=f"Klik untuk pilih {jumlah} Robux", emoji="⚡", value=key))
         super().__init__(placeholder="⚡ Pilih Jumlah Visend - Harga Langsung Muncul!", min_values=1, max_values=1, options=options, custom_id="visend_select")
     async def callback(self, interaction: discord.Interaction):
         key = self.values[0]
         harga = HARGA_VISEND[key]
         jumlah = key.replace("_ecer", " Eceran")
-        e = discord.Embed(
-            title="⚡  VISEND DIPILIH!",
-            description=f"**Kamu pilih:** {jumlah} Robux\n**Harga:** **{format_rupiah(harga)}**\n\nSilahkan transfer ke QRIS di bawah, terus kirim bukti TF di ticket ini!\nAdmin langsung proses! ⚡",
-            color=discord.Color.from_rgb(255, 193, 7)
-        )
+        e = discord.Embed(title="⚡  VISEND DIPILIH!", description=f"**Kamu pilih:** {jumlah} Robux\n**Harga:** **{format_rupiah(harga)}**\n\nSilahkan transfer ke QRIS / DANA di bawah, terus kirim bukti TF di ticket ini!", color=discord.Color.from_rgb(255, 193, 7))
         e.set_image(url=QRIS_URL)
         await interaction.response.send_message(embed=e)
 
@@ -192,66 +306,30 @@ class CloseTicketView(View):
 class TicketView(View):
     def __init__(self):
         super().__init__(timeout=None)
-
-    async def buat_ticket(self, interaction: discord.Interaction, jenis: str, judul: str):
-        guild = interaction.guild
-        cat = discord.utils.get(guild.categories, name="⎯⎯⎯• Mipi Store")
-        if not cat:
-            cat = discord.utils.get(guild.categories, name="⎯⎯⎯• Ticket & Order")
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True)
-        }
-        ch = await guild.create_text_channel(f"🎫┃{jenis}-{interaction.user.name}", category=cat, overwrites=overwrites)
-        embed1 = discord.Embed(title=f"🎫  TICKET {judul} - MIPI WORLD", description=f"Halo {interaction.user.mention}!\n\nSelamat datang di ticket {judul}!\nSilakan isi format & langsung scan QRIS!", color=discord.Color.from_rgb(88,101,242))
-        embed1.set_image(url=BANNER_TICKET_URL)
-        await ch.send(embed=embed1)
-        if jenis == "visend":
-            embed_harga = discord.Embed(title="⚡  HARGA VISEND - PILIH LANGSUNG DI SINI!", description="Pilih jumlah di bawah, harga langsung muncul!\nGa perlu tanya-tanya lagi!", color=discord.Color.from_rgb(255, 193, 7))
-            daftar = ""
-            for key, harga in HARGA_VISEND.items():
-                jumlah = key.replace("_ecer", " Eceran")
-                daftar += f"• **{jumlah} Robux** : {format_rupiah(harga)}\n"
-            embed_harga.add_field(name="📋 Daftar Harga Saat Ini:", value=daftar, inline=False)
-            await ch.send(embed=embed_harga, view=VisendView())
-        embed2 = discord.Embed(title="📝  FORMAT ORDER", description="**• Nama Roblox:**\n**• Produk:** (Send / Vilog / Pluss / Visend / Akun)\n**• Nominal:**\n**• Bukti TF:** (Kirim foto di sini)\n\nAdmin akan segera merespon!", color=discord.Color.green())
-        await ch.send(embed=embed2)
-        embed3 = discord.Embed(title="💰  PEMBAYARAN - QRIS MIPI WORLD", description="Silakan scan QR di bawah untuk bayar!\n\n**Nama:** Rafi Store\n**NMID:** ID1026603621750\n\n⚠️ **PENTING:**\n• Bayar sesuai nominal order\n• Kirim bukti TF di ticket ini", color=discord.Color.from_rgb(255, 193, 7))
-        embed3.set_image(url=QRIS_URL)
-        embed3.set_footer(text="MIPI WORLD • QRIS Otomatis | Rafi Store")
-        await ch.send(embed=embed3, view=CloseTicketView())
-        return ch
-
     @discord.ui.button(label="Robux Vilog", style=discord.ButtonStyle.blurple, custom_id="ticket_vilog", emoji="🎫")
     async def vilog(self, interaction: discord.Interaction, button: Button):
-        ch = await self.buat_ticket(interaction, "vilog", "ROBUX VILOG")
-        await interaction.response.send_message(f"✅ Ticket Vilog dibuat: {ch.mention}", ephemeral=True)
+        await interaction.response.send_modal(VilogModal())
     @discord.ui.button(label="Acc 8 Bit", style=discord.ButtonStyle.green, custom_id="ticket_8bit", emoji="🌟")
     async def bit8(self, interaction: discord.Interaction, button: Button):
-        ch = await self.buat_ticket(interaction, "8bit", "ACC 8 BIT")
-        await interaction.response.send_message(f"✅ Ticket 8 Bit dibuat: {ch.mention}", ephemeral=True)
+        await interaction.response.send_modal(Bit8Modal())
     @discord.ui.button(label="Roblox Plus", style=discord.ButtonStyle.grey, custom_id="ticket_plus", emoji="✨")
     async def plus(self, interaction: discord.Interaction, button: Button):
-        ch = await self.buat_ticket(interaction, "plus", "ROBLOX PLUS")
-        await interaction.response.send_message(f"✅ Ticket Plus dibuat: {ch.mention}", ephemeral=True)
+        await interaction.response.send_modal(PlusModal())
     @discord.ui.button(label="BELI AKUN", style=discord.ButtonStyle.grey, custom_id="ticket_akun", emoji="🛒")
     async def akun(self, interaction: discord.Interaction, button: Button):
-        ch = await self.buat_ticket(interaction, "akun", "BELI AKUN")
-        await interaction.response.send_message(f"✅ Ticket Beli Akun dibuat: {ch.mention}", ephemeral=True)
+        await interaction.response.send_modal(AkunModal())
     @discord.ui.button(label="VISEND / FAST SEND", style=discord.ButtonStyle.red, custom_id="ticket_visend", emoji="⚡")
     async def visend(self, interaction: discord.Interaction, button: Button):
-        ch = await self.buat_ticket(interaction, "visend", "VISEND")
-        await interaction.response.send_message(f"✅ Ticket Visend dibuat: {ch.mention}\nPilih harga langsung di dalam ticket!", ephemeral=True)
+        await interaction.response.send_modal(VisendModal())
 
 @bot.tree.command(name="ticket", description="Kirim panel ticket order - 1 Panel 5 Ticket")
 @app_commands.checks.has_permissions(administrator=True)
 async def ticket_slash(interaction: discord.Interaction):
-    embed = discord.Embed(title="🎀  WELCOME TO MIPI STORE 🎀", description="HALLO KAKK!! Selamat datang di Mipi Store!\n\nMau order apa? Klik tombol di bawah!\n\n🎫 **Robux Vilog**\n🌟 **Acc 8 Bit**\n✨ **Roblox Plus**\n🛒 **Beli Akun**\n⚡ **Visend / Fast Send** - Harga Bisa Dipilih Langsung!\n\nAdmin fast respon!", color=discord.Color.from_rgb(255, 158, 187))
+    embed = discord.Embed(title="🎀  WELCOME TO MIPI STORE 🎀", description="HALLO KAKK!! Selamat datang di Mipi Store!\n\nMau order apa? Klik tombol di bawah!\n\n🎫 **Robux Vilog** - Via Login (Username + Password)\n🌟 **Acc 8 Bit** - Cuma Username + Paket!\n✨ **Roblox Plus** - Plus Membership\n🛒 **Beli Akun** - Cari Akun\n⚡ **Visend / Fast Send** - Cuma Username + Nickname!\n\nPembayaran: QRIS / DANA\nAdmin fast respon!", color=discord.Color.from_rgb(255, 158, 187))
     embed.set_image(url=BANNER_MIPI)
     await interaction.response.send_message(embed=embed, view=TicketView())
 
-@bot.tree.command(name="sethargavisend", description="Ganti harga Visend langsung dari DC!")
+@bot.tree.command(name="sethargavisend", description="Ganti harga Visend langsung dari DC! Permanen!")
 @app_commands.describe(jumlah="Contoh: 500 / 1000 / 100_ecer", harga_baru="Harga baru tanpa titik, contoh: 80000")
 @app_commands.checks.has_permissions(administrator=True)
 async def setharga_visend(interaction: discord.Interaction, jumlah: str, harga_baru: int):
@@ -261,7 +339,8 @@ async def setharga_visend(interaction: discord.Interaction, jumlah: str, harga_b
         return
     harga_lama = HARGA_VISEND[jumlah]
     HARGA_VISEND[jumlah] = harga_baru
-    await interaction.response.send_message(f"✅ **HARGA VISEND BERHASIL DIUBAH!**\n\n**{jumlah} Robux:** {format_rupiah(harga_lama)} ➜ **{format_rupiah(harga_baru)}**\n\nHarga baru langsung kepake buat ticket Visend berikutnya! ⚡", ephemeral=False)
+    simpan_harga()
+    await interaction.response.send_message(f"✅ **HARGA VISEND BERHASIL DIUBAH & TERSIMPAN PERMANEN!**\n\n**{jumlah} Robux:** {format_rupiah(harga_lama)} ➜ **{format_rupiah(harga_baru)}**", ephemeral=False)
 
 @bot.tree.command(name="cekhargavisend", description="Lihat semua harga Visend saat ini")
 async def cekharga_visend(interaction: discord.Interaction):
@@ -303,7 +382,7 @@ class PricelistView(View):
 @bot.tree.command(name="pricelist", description="Kirim panel pricelist MIPI WORLD")
 @app_commands.checks.has_permissions(administrator=True)
 async def pricelist_slash(interaction: discord.Interaction):
-    e = discord.Embed(title="📋  DAFTAR HARGA\nROBUX • MIPI WORLD", description="▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\nSilakan pilih kategori produk pada menu dropdown di bawah:\n\n⊙ Robux Send\n⊙ Robux Vilog\n⊙ Roblox Pluss\n\n• Harga sewaktu-waktu dapat berubah mengikuti rate pasar.", color=discord.Color.from_rgb(88,101,242))
+    e = discord.Embed(title="📋  DAFTAR HARGA\nROBUX • MIPI WORLD", description="▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\nSilakan pilih kategori produk pada menu dropdown di bawah:\n\n⊙ Robux Send\n⊙ Robux Vilog\n⊙ Roblox Pluss", color=discord.Color.from_rgb(88,101,242))
     e.set_image(url=BANNER_MIPI)
     e.set_footer(text="MIPI WORLD • Aman • Cepat • Terpercaya")
     await interaction.response.send_message(embed=e, view=PricelistView())
@@ -317,7 +396,7 @@ async def on_member_join(member):
     e.set_image(url=BANNER_MIPI)
     await ch.send(embed=e)
 
-# ========== 7. CEK AVATAR LENGKAP ==========
+# ========== 7. CEK AVATAR ==========
 async def get_roblox_id(username: str):
     async with aiohttp.ClientSession() as session:
         async with session.post("https://users.roblox.com/v1/usernames/users", json={"usernames": [username]}) as r:
@@ -339,7 +418,7 @@ async def get_asset_names(asset_ids: list):
                         hasil[item["id"]] = item["name"]
     return hasil
 
-@bot.tree.command(name="cekavatar", description="Cek avatar Roblox lengkap sampe baju & aksesoris")
+@bot.tree.command(name="cekavatar", description="Cek avatar Roblox lengkap")
 @app_commands.describe(username="Username Roblox, contoh: Builderman")
 async def cekavatar_lengkap(interaction: discord.Interaction, username: str):
     await interaction.response.defer()
@@ -372,60 +451,33 @@ async def cekavatar_lengkap(interaction: discord.Interaction, username: str):
             return f"{emoji} **{nama_kategori}:**\n" + "\n".join(kategori[nama_kategori]) + "\n\n"
         return ""
     deskripsi_lengkap = ""
-    deskripsi_lengkap += ambil("HairAccessory", "💇")
-    deskripsi_lengkap += ambil("Hat", "🎩")
-    deskripsi_lengkap += ambil("Face", "😀")
-    deskripsi_lengkap += ambil("Head", "🗣️")
-    deskripsi_lengkap += ambil("Shirt", "👕")
-    deskripsi_lengkap += ambil("Pants", "👖")
-    deskripsi_lengkap += ambil("TShirt", "👚")
-    deskripsi_lengkap += ambil("ShirtAccessory", "🧥")
-    deskripsi_lengkap += ambil("PantsAccessory", "👖")
-    deskripsi_lengkap += ambil("JacketAccessory", "🧥")
-    deskripsi_lengkap += ambil("SweaterAccessory", "🧶")
-    deskripsi_lengkap += ambil("ShortsAccessory", "🩳")
-    deskripsi_lengkap += ambil("DressSkirtAccessory", "👗")
-    deskripsi_lengkap += ambil("BackAccessory", "🎒")
-    deskripsi_lengkap += ambil("FrontAccessory", "🎀")
-    deskripsi_lengkap += ambil("NeckAccessory", "📿")
-    deskripsi_lengkap += ambil("ShoulderAccessory", "🎒")
-    deskripsi_lengkap += ambil("WaistAccessory", "🔗")
-    deskripsi_lengkap += ambil("FaceAccessory", "👓")
-    deskripsi_lengkap += ambil("Gear", "⚔️")
-    sudah = ["HairAccessory","Hat","Face","Head","Shirt","Pants","TShirt","ShirtAccessory","PantsAccessory","JacketAccessory","SweaterAccessory","ShortsAccessory","DressSkirtAccessory","BackAccessory","FrontAccessory","NeckAccessory","ShoulderAccessory","WaistAccessory","FaceAccessory","Gear"]
-    lainnya = ""
-    for k, v in kategori.items():
-        if k not in sudah:
-            lainnya += f"✨ **{k}:**\n" + "\n".join(v) + "\n\n"
-    deskripsi_lengkap += lainnya
+    for k, em in [("HairAccessory","💇"),("Hat","🎩"),("Face","😀"),("Head","🗣️"),("Shirt","👕"),("Pants","👖"),("TShirt","👚"),("BackAccessory","🎒"),("NeckAccessory","📿"),("FaceAccessory","👓"),("Gear","⚔️")]:
+        deskripsi_lengkap += ambil(k, em)
     if not deskripsi_lengkap:
         deskripsi_lengkap = "Avatar ini ga pake item / Avatar default (Noob)"
-    embed = discord.Embed(title=f"🖼️  AVATAR LENGKAP • {profil['name']}", description=f"**Display:** {profil['displayName']} | **ID:** `{user_id}`\n**Total Item Dipake:** {len(asset_ids)} item", color=discord.Color.from_rgb(88,101,242))
-    embed.add_field(name="👕👖 BAJU & AKSESORIS YANG DIPAKE:", value=deskripsi_lengkap[:1020], inline=False)
-    embed.add_field(name="🎨 Warna Badan", value=f"Kepala: {avatar_detail.get('headColorId')} | Torso: {avatar_detail.get('torsoColorId')} | Lengan: {avatar_detail.get('rightArmColorId')} | Kaki: {avatar_detail.get('leftLegColorId')}", inline=False)
-    embed.add_field(name="🔗 Link Profil", value=f"[Klik Disini](https://www.roblox.com/users/{user_id}/profile)", inline=False)
+    embed = discord.Embed(title=f"🖼️  AVATAR LENGKAP • {profil['name']}", description=f"**Display:** {profil['displayName']} | **ID:** `{user_id}`\n**Total Item:** {len(asset_ids)} item", color=discord.Color.from_rgb(88,101,242))
+    embed.add_field(name="👕👖 BAJU & AKSESORIS:", value=deskripsi_lengkap[:1020], inline=False)
     embed.set_image(url=full_img)
     embed.set_thumbnail(url=head_img)
-    embed.set_footer(text="MIPI WORLD • Cek Avatar Lengkap | Klik nama item buat liat di Catalog")
     await interaction.followup.send(embed=embed)
 
-# ========== 8. CEK GAMEPASS & CEK PENDING ==========
+# ========== 8. CEK GAMEPASS & PENDING ==========
 def ambil_id_gamepass(input_teks: str):
     angka = re.findall(r"\d+", input_teks)
     return angka[0] if angka else None
 
 @bot.tree.command(name="cekgamepass", description="Cek detail & harga Gamepass Roblox")
-@app_commands.describe(gamepass="Link atau ID Gamepass, contoh: 12345678 atau link roblox.com/game-pass/...")
+@app_commands.describe(gamepass="Link atau ID Gamepass")
 async def cekgamepass_slash(interaction: discord.Interaction, gamepass: str):
     await interaction.response.defer()
     gp_id = ambil_id_gamepass(gamepass)
     if not gp_id:
-        await interaction.followup.send("❌ ID Gamepass ga ketemu! Kirim link atau ID nya, contoh: `12345678`")
+        await interaction.followup.send("❌ ID Gamepass ga ketemu!")
         return
     async with aiohttp.ClientSession() as session:
         async with session.get(f"https://apis.roblox.com/game-passes/v1/game-passes/{gp_id}") as r:
             if r.status != 200:
-                await interaction.followup.send(f"❌ Gamepass ID `{gp_id}` ga ketemu / udah dihapus!")
+                await interaction.followup.send(f"❌ Gamepass ID `{gp_id}` ga ketemu!")
                 return
             data = await r.json()
         async with session.get(f"https://thumbnails.roblox.com/v1/game-passes?gamePassIds={gp_id}&size=512x512&format=Png&isCircular=false") as r:
@@ -433,22 +485,18 @@ async def cekgamepass_slash(interaction: discord.Interaction, gamepass: str):
             img = thumb["data"][0]["imageUrl"] if thumb["data"] else None
     price = data.get("price")
     harga_teks = f"{price} Robux" if price is not None else "GRATIS / OFF SALE"
-    status = "✅ ON SALE" if data.get("isForSale") else "❌ OFF SALE / TIDAK DIJUAL"
+    status = "✅ ON SALE" if data.get("isForSale") else "❌ OFF SALE"
     embed = discord.Embed(title=f"🎟️  GAMEPASS • {data['name']}", color=discord.Color.from_rgb(88,101,242))
-    embed.add_field(name="🆔 Gamepass ID", value=f"`{data['id']}`", inline=True)
+    embed.add_field(name="🆔 ID", value=f"`{data['id']}`", inline=True)
     embed.add_field(name="💰 Harga", value=f"**{harga_teks}**", inline=True)
     embed.add_field(name="📦 Status", value=status, inline=True)
-    embed.add_field(name="👤 Creator", value=f"{data['creator']['name']} ({data['creator']['type']})", inline=True)
-    embed.add_field(name="📅 Dibuat", value=data['created'][:10], inline=True)
     embed.add_field(name="🔗 Link", value=f"[Klik Disini](https://www.roblox.com/game-pass/{data['id']})", inline=False)
-    embed.add_field(name="📝 Deskripsi", value=(data['description'] or "Tidak ada deskripsi")[:500], inline=False)
     if img:
         embed.set_thumbnail(url=img)
-    embed.set_footer(text="MIPI WORLD • Cek Gamepass | Pastikan harga sama dengan orderan!")
     await interaction.followup.send(embed=embed)
 
 @bot.tree.command(name="cekpending", description="Cek estimasi Robux Pending dari Gamepass")
-@app_commands.describe(gamepass="Link / ID Gamepass yang baru dibeli", tanggal_beli="Kapan dibelinya? Contoh: 2026-11-20 atau hari ini")
+@app_commands.describe(gamepass="Link / ID Gamepass", tanggal_beli="Contoh: 2026-11-20 atau hari ini")
 async def cekpending_slash(interaction: discord.Interaction, gamepass: str, tanggal_beli: str = None):
     await interaction.response.defer()
     gp_id = ambil_id_gamepass(gamepass)
@@ -461,12 +509,10 @@ async def cekpending_slash(interaction: discord.Interaction, gamepass: str, tang
         else:
             tgl = datetime.strptime(tanggal_beli, "%Y-%m-%d")
     except:
-        await interaction.followup.send("❌ Format tanggal salah! Pake `YYYY-MM-DD`, contoh: `2026-11-20` atau ketik `hari ini`")
+        await interaction.followup.send("❌ Format tanggal salah! Pake `YYYY-MM-DD`")
         return
     cair_3hari = tgl + timedelta(days=3)
     cair_7hari = tgl + timedelta(days=7)
-    sisa_hari = (cair_3hari - datetime.now()).days
-    sisa_teks = f"Kurang lebih **{max(0, sisa_hari)} hari lagi**" if sisa_hari > 0 else "✅ **UDAH BISA CAIR / CEK DI PENDING ROBUX!**"
     async with aiohttp.ClientSession() as session:
         async with session.get(f"https://apis.roblox.com/game-passes/v1/game-passes/{gp_id}") as r:
             if r.status != 200:
@@ -476,14 +522,9 @@ async def cekpending_slash(interaction: discord.Interaction, gamepass: str, tang
     harga = data.get("price") or 0
     diterima = int(harga * 0.7)
     embed = discord.Embed(title=f"⏳  CEK PENDING • {data['name']}", color=discord.Color.orange())
-    embed.add_field(name="🆔 Gamepass ID", value=f"`{data['id']}`", inline=True)
-    embed.add_field(name="💰 Harga Gamepass", value=f"{harga} Robux", inline=True)
-    embed.add_field(name="💸 Yang Masuk (70%)", value=f"**{diterima} Robux** (Roblox potong 30%)", inline=False)
-    embed.add_field(name="📅 Tanggal Beli", value=tgl.strftime("%d %B %Y"), inline=True)
+    embed.add_field(name="💰 Harga", value=f"{harga} Robux", inline=True)
+    embed.add_field(name="💸 Yang Masuk (70%)", value=f"**{diterima} Robux**", inline=False)
     embed.add_field(name="⏰ Estimasi Cair", value=f"**{cair_3hari.strftime('%d %B %Y')}** - {cair_7hari.strftime('%d %B %Y')}", inline=True)
-    embed.add_field(name="📊 Status", value=sisa_teks, inline=False)
-    embed.add_field(name="🔗 Cek Manual", value="Cek di Roblox > [Pending Robux](https://www.roblox.com/transactions) > Pilih **Pending Robux**", inline=False)
-    embed.set_footer(text="MIPI WORLD • Cek Pending | Robux Pending biasanya cair 3-7 hari")
     await interaction.followup.send(embed=embed)
 
 # ========== 9. ON READY ==========
